@@ -28,13 +28,15 @@ func handle(w dns.ResponseWriter, req *dns.Msg) {
 	logrus.Infoln("Question:", &req.Question[0])
 
 	req.RecursionDesired = true
-	// https://tools.ietf.org/html/rfc6891#section-6.2.5
-	if e := req.IsEdns0(); e != nil {
-		if e.UDPSize() < uint16(*flagUDPMaxBytes) {
-			e.SetUDPSize(uint16(*flagUDPMaxBytes))
+	if *flagUDPMaxBytes > dns.MinMsgSize {
+		// https://tools.ietf.org/html/rfc6891#section-6.2.5
+		if e := req.IsEdns0(); e != nil {
+			if e.UDPSize() < uint16(*flagUDPMaxBytes) {
+				e.SetUDPSize(uint16(*flagUDPMaxBytes))
+			}
+		} else {
+			req.SetEdns0(uint16(*flagUDPMaxBytes), false)
 		}
-	} else {
-		req.SetEdns0(uint16(*flagUDPMaxBytes), false)
 	}
 
 	reply, rtt, err := udpCli.Exchange(req, *flagResolver)
@@ -64,13 +66,15 @@ func handleMutation(w dns.ResponseWriter, req *dns.Msg) {
 	logrus.Infoln("Question:", &req.Question[0])
 
 	req.RecursionDesired = true
-	// https://tools.ietf.org/html/rfc6891#section-6.2.5
-	if e := req.IsEdns0(); e != nil {
-		if e.UDPSize() < uint16(*flagUDPMaxBytes) {
-			e.SetUDPSize(uint16(*flagUDPMaxBytes))
+	if *flagUDPMaxBytes > dns.MinMsgSize {
+		// https://tools.ietf.org/html/rfc6891#section-6.2.5
+		if e := req.IsEdns0(); e != nil {
+			if e.UDPSize() < uint16(*flagUDPMaxBytes) {
+				e.SetUDPSize(uint16(*flagUDPMaxBytes))
+			}
+		} else {
+			req.SetEdns0(uint16(*flagUDPMaxBytes), false)
 		}
-	} else {
-		req.SetEdns0(uint16(*flagUDPMaxBytes), false)
 	}
 
 	reply, rtt, err := exchangeMutation(req)
