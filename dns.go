@@ -1,4 +1,4 @@
-package server
+package gochinadns
 
 import (
 	"time"
@@ -7,13 +7,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var udpCli = &dns.Client{Timeout: time.Second * 2}
-var tcpCli = &dns.Client{Timeout: time.Second * 2, SingleInflight: true, Net: "tcp"}
-
 // DNS Proxy Implementation Guidelines: https://tools.ietf.org/html/rfc5625
 // DNS query processing: https://tools.ietf.org/html/rfc1034#section-3.7
 // Happy Eyeballs: https://tools.ietf.org/html/rfc6555#section-5.4 and #section-6
-func handle(w dns.ResponseWriter, req *dns.Msg) {
+func (s *Server) handle(w dns.ResponseWriter, req *dns.Msg) {
+	// Its client's responsibility to close this conn.
 	// defer w.Close()
 	logrus.Debug("Question:", &req.Question[0])
 
@@ -49,10 +47,12 @@ func handle(w dns.ResponseWriter, req *dns.Msg) {
 	w.WriteMsg(reply)
 }
 
+func (s *Server) Exchange(req *dns.Msg, addr string) {
+}
+
 // DNS Compression: https://tools.ietf.org/html/rfc1035#section-4.1.4
 // DNS compression pointer mutation: https://gist.github.com/klzgrad/f124065c0616022b65e5#file-sendmsg-c-L30-L63
 func handleMutation(w dns.ResponseWriter, req *dns.Msg) {
-	// defer w.Close()
 	logrus.Debug("Question:", &req.Question[0])
 
 	req.RecursionDesired = true
@@ -80,7 +80,7 @@ func handleMutation(w dns.ResponseWriter, req *dns.Msg) {
 	w.WriteMsg(reply)
 }
 
-func exchangeMutation(req *dns.Msg) (reply *dns.Msg, rtt time.Duration, err error) {
+func exchangeMutation(req *dns.Msg, addr string) (reply *dns.Msg, rtt time.Duration, err error) {
 	buffer, err := req.Pack()
 	if err != nil {
 		return
@@ -90,7 +90,7 @@ func exchangeMutation(req *dns.Msg) (reply *dns.Msg, rtt time.Duration, err erro
 		buffer = mutateQuestion(buffer)
 	}
 
-	conn, err := udpCli.Dial("8.8.8.8:53")
+	conn, err := udpCli.Dial(addr)
 	if err != nil {
 		return
 	}
