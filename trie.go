@@ -47,6 +47,9 @@ func (tr *domainTrie) Add(domain string) {
 // play.google.com. DOES NOT contain mail.google.com
 // domain MUST be a valid domain name.
 func (tr *domainTrie) Contain(domain string) bool {
+	if tr == nil {
+		return false
+	}
 	labels := strings.Split(domain, ".")
 	node := tr
 	if node.end {

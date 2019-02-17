@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -27,7 +28,8 @@ var (
 	flagForceTCP        = flag.Bool("force-tcp", false, "Force DNS queries use TCP only.")
 	flagMutation        = flag.Bool("m", true, "Enable compression pointer mutation in DNS queries.")
 	flagBidirectional   = flag.Bool("d", true, "Drop results of trusted servers which containing IPs in China.")
-	flagDelay           = flag.Float64("y", 0.3, "Delay (in seconds) to query another DNS server when no reply received.")
+	flagTimeout         = flag.Duration("timeout", time.Second, "DNS request timeout")
+	flagDelay           = flag.Float64("y", 0.1, "Delay (in seconds) to query another DNS server when no reply received.")
 	flagTestDomains     = flag.String("test-domains", "qq.com,163.com", "Domain names to test DNS connection health.")
 	flagCHNList         = flag.String("c", "./chnroute.txt", "Path to China route list. Both IPv4 and IPv6 are supported. See http://ipverse.net")
 	flagIPBlacklist     = flag.String("l", "", "Path to IP blacklist file.")
@@ -103,13 +105,16 @@ func main() {
 	opts := []gochinadns.ServerOption{
 		gochinadns.WithListenAddr(listen),
 		gochinadns.WithUDPMaxBytes(*flagUDPMaxBytes),
-		gochinadns.WithForceTCP(*flagForceTCP),
+		gochinadns.WithTCPOnly(*flagForceTCP),
 		gochinadns.WithMutation(*flagMutation),
 		gochinadns.WithBidirectional(*flagBidirectional),
-		gochinadns.WithDelay(*flagDelay),
+		gochinadns.WithTimeout(*flagTimeout),
+		gochinadns.WithDelay(time.Duration(*flagDelay * float64(time.Second))),
+		gochinadns.WithTrustedResolvers(flagTrustedResolvers...),
+		gochinadns.WithResolvers(flagResolvers...),
 	}
 	if *flagTestDomains != "" {
-		opts = append(opts, gochinadns.WithTestDomains(strings.Split(*flagTestDomains)))
+		opts = append(opts, gochinadns.WithTestDomains(strings.Split(*flagTestDomains, ",")...))
 	}
 	if *flagCHNList != "" {
 		opts = append(opts, gochinadns.WithCHNList(*flagCHNList))
@@ -124,7 +129,7 @@ func main() {
 		opts = append(opts, gochinadns.WithDomainPolluted(*flagDomainPolluted))
 	}
 
-	server, err := gochinadns.NewServer(opts)
+	server, err := gochinadns.NewServer(opts...)
 	if err != nil {
 		panic(err)
 	}

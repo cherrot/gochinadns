@@ -25,7 +25,7 @@ type serverOptions struct {
 	UntrustedServers []string      //DNS servers which may return polluted results
 	Timeout          time.Duration // Timeout for one DNS query
 	UDPMaxSize       int           //Max message size for UDP queries
-	ForceTCP         bool          //Use TCP only
+	TCPOnly          bool          //Use TCP only
 	Mutation         bool          //Enable DNS pointer mutation for trusted servers
 	Bidirectional    bool          //Drop results of trusted servers which containing IPs in China
 	Delay            time.Duration //Delay (in seconds) to query another DNS server when no reply received
@@ -33,8 +33,9 @@ type serverOptions struct {
 }
 
 func newServerOptions() *serverOptions {
-	return &serverOptons{
+	return &serverOptions{
 		Listen:      "[::]:53",
+		Timeout:     time.Second,
 		TestDomains: []string{"qq.com"},
 	}
 }
@@ -63,6 +64,7 @@ func WithCHNList(path string) ServerOption {
 		file, err := os.Open(path)
 		if err != nil {
 			return errors.Wrap(err, "fail to open China route list")
+
 		}
 		defer file.Close()
 
@@ -106,7 +108,8 @@ func WithIPBlacklist(path string) ServerOption {
 				if ip == nil {
 					return errors.Wrap(err, fmt.Sprintf("parse %s as CIDR failed", scanner.Text()))
 				}
-				network = &net.IPNet{IP: ip, Mask: 8 * len(ip)}
+				l := 8 * len(ip)
+				network = &net.IPNet{IP: ip, Mask: net.CIDRMask(l, l)}
 			}
 			o.IPBlacklist.Insert(cidranger.NewBasicRangerEntry(*network))
 		}
@@ -220,23 +223,23 @@ func WithUDPMaxBytes(max int) ServerOption {
 	}
 }
 
-func WithForceTCP() ServerOption {
-	return func(o *serverOptons) error {
-		o.ForceTCP = true
+func WithTCPOnly(b bool) ServerOption {
+	return func(o *serverOptions) error {
+		o.TCPOnly = b
 		return nil
 	}
 }
 
-func WithMutation() ServerOption {
-	return func(o *serverOptons) error {
-		o.Mutation = true
+func WithMutation(b bool) ServerOption {
+	return func(o *serverOptions) error {
+		o.Mutation = b
 		return nil
 	}
 }
 
-func WithBidirectional() ServerOption {
-	return func(o *serverOptons) error {
-		o.Bidirectional = true
+func WithBidirectional(b bool) ServerOption {
+	return func(o *serverOptions) error {
+		o.Bidirectional = b
 		return nil
 	}
 }
