@@ -225,9 +225,8 @@ func (s *Server) LookupMutation(req *dns.Msg, server string) (reply *dns.Msg, rt
 		"server":   server,
 	})
 	req.RecursionDesired = true
-	if !s.TCPOnly {
-		setUDPSize(req, s.UDPMaxSize)
-	}
+	// EDNS0 cannot coexist with pointer mutation.
+	cleanEdns0(req)
 
 	buffer, err := req.Pack()
 	if err != nil {
@@ -237,19 +236,8 @@ func (s *Server) LookupMutation(req *dns.Msg, server string) (reply *dns.Msg, rt
 
 	t := time.Now()
 	if !s.TCPOnly {
-		var udpSize uint16
-		// If EDNS0 is used use that for size.
-		opt := req.IsEdns0()
-		if opt != nil && opt.UDPSize() >= dns.MinMsgSize {
-			udpSize = opt.UDPSize()
-		}
-		// Otherwise use the client's configured UDP size.
-		if opt == nil && s.UDPCli.UDPSize >= dns.MinMsgSize {
-			udpSize = s.UDPCli.UDPSize
-		}
-
 		ddl := t.Add(s.UDPCli.Timeout)
-		reply, err = rawLookup(s.UDPCli, req.Id, buffer, server, ddl, udpSize)
+		reply, err = rawLookup(s.UDPCli, req.Id, buffer, server, ddl, uint16(s.UDPMaxSize))
 		if err != nil {
 			logger.WithError(err).Error("Fail to send UDP mutation query. Will retry in TCP.")
 		}
@@ -334,10 +322,7 @@ func rawLookup(cli *dns.Client, id uint16, req []byte, server string, ddl time.T
 		return nil, err
 	}
 	defer conn.Close()
-	conn.TsigSecret = cli.TsigSecret
-	if udpSize > 0 {
-		conn.UDPSize = uint16(udpSize)
-	}
+	conn.UDPSize = udpSize
 
 	conn.SetWriteDeadline(ddl)
 	if _, err := conn.Write(req); err != nil {
@@ -365,6 +350,15 @@ func setUDPSize(req *dns.Msg, size int) {
 		} else {
 			req.SetEdns0(uint16(size), false)
 		}
+	}
+}
+
+func cleanEdns0(req *dns.Msg) {
+	for {
+		if req.IsEdns0() == nil {
+			break
+		}
+		req.Extra = req.Extra[:len(req.Extra)-1]
 	}
 }
 
