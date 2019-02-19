@@ -16,7 +16,7 @@ go build
 Run:
 
 ```shell
-./chinadns -listen '[::]:5553' -c ./china.list -v
+./chinadns -p 5553 -c ./china.list -v
 ```
 
 Test:

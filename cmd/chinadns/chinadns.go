@@ -13,15 +13,10 @@ import (
 	"github.com/cherrot/gochinadns"
 )
 
-const (
-	defaultListen = "[::]:53"
-)
-
 var (
 	flagVersion = flag.Bool("V", false, "Print version and exit.")
 	flagVerbose = flag.Bool("v", false, "Enable verbose logging.")
 
-	flagListen          = flag.String("listen", defaultListen, "Listening address. This will override -b and -p params.")
 	flagBind            = flag.String("b", "::", "Bind address.")
 	flagPort            = flag.Int("p", 53, "Listening port.")
 	flagUDPMaxBytes     = flag.Int("udp-max-bytes", 1410, "Default DNS max message size on UDP.")
@@ -79,18 +74,6 @@ func (rs *resolverAddrs) Set(s string) error {
 	return nil
 }
 
-func parseListenAddr() string {
-	listen := *flagListen
-	if *flagListen == defaultListen {
-		host, port, _ := net.SplitHostPort(defaultListen)
-		iport, _ := strconv.Atoi(port)
-		if *flagBind != host || *flagPort != iport {
-			listen = net.JoinHostPort(host, port)
-		}
-	}
-	return listen
-}
-
 func main() {
 	flag.Parse()
 	if *flagVersion {
@@ -101,7 +84,7 @@ func main() {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
 
-	listen := parseListenAddr()
+	listen := net.JoinHostPort(*flagBind, strconv.Itoa(*flagPort))
 	opts := []gochinadns.ServerOption{
 		gochinadns.WithListenAddr(listen),
 		gochinadns.WithUDPMaxBytes(*flagUDPMaxBytes),

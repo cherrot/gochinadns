@@ -63,7 +63,7 @@ func NewServer(opts ...ServerOption) (s *Server, err error) {
 
 // Run start the default DNS server.
 func (s *Server) Run() error {
-	logrus.Info("Start server at", s.Listen)
+	logrus.Info("Start server at ", s.Listen)
 	eg, _ := errgroup.WithContext(context.Background())
 	eg.Go(s.UDPServer.ListenAndServe)
 	eg.Go(s.TCPServer.ListenAndServe)
