@@ -107,7 +107,7 @@ func (s *Server) checkDNSConnection() error {
 		if trusted[i].errCnt > 2*len(s.TestDomains) {
 			tLen--
 		}
-		logrus.Infof("Check trusted resolver %s: average RTT %s, errors count %d", resolver, trusted[i].rttAvg, trusted[i].errCnt)
+		logrus.Infof("%s: average RTT %s with %d errors.", resolver, trusted[i].rttAvg, trusted[i].errCnt)
 	}
 
 	sort.Slice(trusted, func(i, j int) bool {
@@ -135,7 +135,7 @@ func (s *Server) checkDNSConnection() error {
 		if untrusted[i].errCnt > 2*len(s.TestDomains) {
 			uLen--
 		}
-		logrus.Infof("Check untrusted resolver %s: average RTT %s, errors count %d", resolver, untrusted[i].rttAvg, untrusted[i].errCnt)
+		logrus.Infof("%s: average RTT %s with %d errors.", resolver, untrusted[i].rttAvg, untrusted[i].errCnt)
 	}
 
 	sort.Slice(untrusted, func(i, j int) bool {

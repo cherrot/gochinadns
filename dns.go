@@ -18,7 +18,7 @@ func (s *Server) Serve(w dns.ResponseWriter, req *dns.Msg) {
 
 	start := time.Now()
 	qName := req.Question[0].Name
-	logger := logrus.WithField("question", qName+" "+dns.TypeToString[req.Question[0].Qtype])
+	logger := logrus.WithField("question", questionString(&req.Question[0]))
 
 	if s.DomainBlacklist.Contain(qName) {
 		reply = new(dns.Msg)
@@ -47,105 +47,128 @@ POLL:
 			logger.Debug("Untrusted result channel is closed. Use former reply (maybe empty).")
 			break
 		}
+
 		reply = rep
-		if len(rep.Answer) == 0 {
-			cancel()
-			break
-		}
-		switch answer := rep.Answer[0].(type) {
-		case *dns.A:
-			logger := logger.WithField("answer", answer.A)
-			contain, err := s.ChinaCIDR.Contains(answer.A)
-			if err != nil {
-				logger.WithError(err).Error("CIDR error.")
-			}
-			if contain {
+		for i, rr := range rep.Answer {
+			switch answer := rr.(type) {
+			case *dns.A:
+				logger := logger.WithField("answer", answer.A)
+				contain, err := s.ChinaCIDR.Contains(answer.A)
+				if err != nil {
+					logger.WithError(err).Error("CIDR error.")
+				}
+				if contain {
+					cancel()
+					logger.Debug("Answer belongs to China. Use this as reply.")
+					break POLL
+				} else {
+					logger.Debug("Answer may be polluted. Wait for trusted reply.")
+					goto POLL
+				}
+
+			case *dns.AAAA:
+				logger := logger.WithField("answer", answer.AAAA)
+				contain, err := s.ChinaCIDR.Contains(answer.AAAA)
+				if err != nil {
+					logger.WithError(err).Error("CIDR error.")
+				}
+				if contain {
+					cancel()
+					logger.Debug("Answer belongs to China. Use this as reply.")
+					break POLL
+				} else {
+					logger.Debug("Answer may be polluted. Wait for trusted reply.")
+					goto POLL
+				}
+			case *dns.CNAME:
+				if i < len(rep.Answer)-1 {
+					continue
+				}
 				cancel()
-				logger.Debug("Answer belongs to China. Use this as reply.")
-			} else {
-				logger.Debug("Answer may be polluted. Wait for trusted reply.")
-				goto POLL
-			}
-		case *dns.AAAA:
-			logger := logger.WithField("answer", answer.AAAA)
-			contain, err := s.ChinaCIDR.Contains(answer.AAAA)
-			if err != nil {
-				logger.WithError(err).Error("CIDR error.")
-			}
-			if contain {
+				logger.Debug("CNAME to ", answer.Target)
+			default:
 				cancel()
-				logger.Debug("Answer belongs to China. Use this as reply.")
-			} else {
-				logger.Debug("Answer may be polluted. Wait for trusted reply.")
-				goto POLL
+				break POLL
 			}
-		default:
-			cancel()
 		}
+		cancel()
 
 	case rep, ok := <-trusted:
 		if !ok {
 			logger.Debug("Trusted result channel is closed. Use former reply (maybe empty).")
 			break
 		}
-		if len(rep.Answer) == 0 {
-			cancel()
-			reply = rep
-			break
-		}
-		switch answer := rep.Answer[0].(type) {
-		case *dns.A:
-			logger := logger.WithField("answer", answer.A)
-			if !s.Bidirectional {
-				cancel()
-				reply = rep
-				logger.Debug("Use this trusted answer as reply.")
-				break POLL
-			}
-			contain, _ := s.ChinaCIDR.Contains(answer.A)
-			if contain {
-				if reply == nil {
+
+		for i, rr := range rep.Answer {
+			switch answer := rr.(type) {
+			case *dns.A:
+				logger := logger.WithField("answer", answer.A)
+				if !s.Bidirectional {
+					cancel()
 					reply = rep
-					logger.Debug("Answer may not be the best. Wait for unstrusted reply.")
-					goto POLL
+					logger.Debug("Use this trusted answer as reply.")
+					break POLL
+				}
+
+				contain, _ := s.ChinaCIDR.Contains(answer.A)
+				if contain {
+					if reply == nil {
+						reply = rep
+						logger.Debug("Answer may not be the best. Wait for unstrusted reply.")
+						goto POLL
+					} else {
+						cancel()
+						reply = rep
+						logger.Warn("This answer belongs to China but the one from unstrusted servers does not. Use this as reply.")
+						break POLL
+					}
 				} else {
 					cancel()
 					reply = rep
-					logger.Warn("This answer belongs to China but the one from unstrusted servers does not. Use this as reply.")
+					logger.Debug("Use this trusted overseas answer as reply.")
+					break POLL
 				}
-			} else {
-				cancel()
-				reply = rep
-				logger.Debug("Use this trusted answer as reply.")
-			}
-		case *dns.AAAA:
-			logger := logger.WithField("answer", answer.AAAA)
-			if !s.Bidirectional {
-				cancel()
-				reply = rep
-				logger.Debug("Use this trusted answer as reply.")
-				break POLL
-			}
-			contain, _ := s.ChinaCIDR.Contains(answer.AAAA)
-			if contain {
-				if reply == nil {
+
+			case *dns.AAAA:
+				logger := logger.WithField("answer", answer.AAAA)
+				if !s.Bidirectional {
+					cancel()
 					reply = rep
-					logger.Debug("Answer may not be the best. Wait for unstrusted reply.")
-					goto POLL
+					logger.Debug("Use this trusted answer as reply.")
+					break POLL
+				}
+
+				contain, _ := s.ChinaCIDR.Contains(answer.AAAA)
+				if contain {
+					if reply == nil {
+						reply = rep
+						logger.Debug("Answer may not be the best. Wait for unstrusted reply.")
+						goto POLL
+					} else {
+						cancel()
+						reply = rep
+						logger.Warn("This answer belongs to China but the one from unstrusted servers does not. Use this as reply.")
+						break POLL
+					}
 				} else {
 					cancel()
 					reply = rep
-					logger.Warn("This answer belongs to China but the one from unstrusted servers does not. Use this as reply.")
+					logger.Debug("Use this trusted overseas answer as reply.")
+					break POLL
 				}
-			} else {
+			case *dns.CNAME:
+				if i < len(rep.Answer)-1 {
+					continue
+				}
+				cancel()
+				logger.Debug("CNAME to ", answer.Target)
+			default:
 				cancel()
 				reply = rep
-				logger.Debug("Use this trusted answer as reply.")
+				break POLL
 			}
-		default:
-			cancel()
-			reply = rep
 		}
+		cancel()
 	}
 
 	if reply != nil {
@@ -157,7 +180,7 @@ POLL:
 	}
 
 	w.WriteMsg(reply)
-	logger.Debug("Total RTT: ", time.Since(start))
+	logger.Debug("SERVING RTT: ", time.Since(start))
 }
 
 // Lookup send a DNS request to the specific server and get its corresponding reply.
@@ -166,7 +189,7 @@ POLL:
 // Happy Eyeballs: https://tools.ietf.org/html/rfc6555#section-5.4 and #section-6
 func (s *Server) Lookup(req *dns.Msg, server string) (reply *dns.Msg, rtt time.Duration, err error) {
 	logger := logrus.WithFields(logrus.Fields{
-		"question": req.Question[0].Name,
+		"question": questionString(&req.Question[0]),
 		"server":   server,
 	})
 	req.RecursionDesired = true
@@ -198,7 +221,7 @@ func (s *Server) Lookup(req *dns.Msg, server string) (reply *dns.Msg, rtt time.D
 // DNS compression pointer mutation: https://gist.github.com/klzgrad/f124065c0616022b65e5#file-sendmsg-c-L30-L63
 func (s *Server) LookupMutation(req *dns.Msg, server string) (reply *dns.Msg, rtt time.Duration, err error) {
 	logger := logrus.WithFields(logrus.Fields{
-		"question": req.Question[0].Name,
+		"question": questionString(&req.Question[0]),
 		"server":   server,
 	})
 	req.RecursionDesired = true
@@ -257,7 +280,7 @@ func lookupInServers(
 	}
 
 	var errChain error
-	logger := logrus.WithField("question", req.Question[0].Name)
+	logger := logrus.WithField("question", questionString(&req.Question[0]))
 	cctx, cancel := context.WithCancel(ctx)
 
 	ticker := time.NewTicker(delay)
@@ -269,7 +292,6 @@ func lookupInServers(
 	doLookup := func(idx int, server string) {
 		defer wg.Done()
 		logger := logger.WithField("server", server)
-		logger.Debug("Query to server #", idx)
 
 		reply, rtt, err := lookupFunc(req, server)
 		if err != nil {
@@ -281,9 +303,9 @@ func lookupInServers(
 		cancel()
 		select {
 		case result <- reply:
+			logger.Debug("Query RTT: ", rtt)
 		default:
 		}
-		logger.Debug("Query RTT: ", rtt)
 	}
 
 	for idx, server := range servers {
@@ -379,4 +401,8 @@ func mutateQuestion(bytes []byte) []byte {
 		copy(buffer[offset+1:], bytes[offset:])
 	}
 	return buffer
+}
+
+func questionString(q *dns.Question) string {
+	return q.Name + " " + dns.TypeToString[q.Qtype]
 }
