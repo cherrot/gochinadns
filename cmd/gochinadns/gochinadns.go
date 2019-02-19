@@ -1,184 +1,137 @@
 package main
 
 import (
-	"context"
 	"flag"
+	"fmt"
+	"net"
+	"strconv"
+	"strings"
 	"time"
 
-	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
+
+	"github.com/cherrot/gochinadns"
 )
 
-var udpCli = &dns.Client{Timeout: time.Second * 2}
-var tcpCli = &dns.Client{Timeout: time.Second * 2, SingleInflight: true, Net: "tcp"}
+const (
+	defaultListen = "[::]:53"
+)
 
 var (
-	flagListen      = flag.String("listen", "[::]:5553", "Listening address")
-	flagUDPMaxBytes = flag.Int("udpMaxBytes", 1410, "Default DNS max message size on UDP.")
-	flagResolver    = flag.String("resolver", "119.29.29.29:53", "Upstream DNS resolver.")
-	flagMutation    = flag.Bool("m", false, "Enable compression pointer mutation in DNS query.")
+	flagVersion = flag.Bool("V", false, "Print version and exit.")
+	flagVerbose = flag.Bool("v", false, "Enable verbose logging.")
+
+	flagListen          = flag.String("listen", defaultListen, "Listening address. This will override -b and -p params.")
+	flagBind            = flag.String("b", "::", "Bind address.")
+	flagPort            = flag.Int("p", 53, "Listening port.")
+	flagUDPMaxBytes     = flag.Int("udp-max-bytes", 1410, "Default DNS max message size on UDP.")
+	flagForceTCP        = flag.Bool("force-tcp", false, "Force DNS queries use TCP only.")
+	flagMutation        = flag.Bool("m", true, "Enable compression pointer mutation in DNS queries.")
+	flagBidirectional   = flag.Bool("d", true, "Drop results of trusted servers which containing IPs in China.")
+	flagTimeout         = flag.Duration("timeout", time.Second, "DNS request timeout")
+	flagDelay           = flag.Float64("y", 0.1, "Delay (in seconds) to query another DNS server when no reply received.")
+	flagTestDomains     = flag.String("test-domains", "qq.com,163.com", "Domain names to test DNS connection health.")
+	flagCHNList         = flag.String("c", "./chnroute.txt", "Path to China route list. Both IPv4 and IPv6 are supported. See http://ipverse.net")
+	flagIPBlacklist     = flag.String("l", "", "Path to IP blacklist file.")
+	flagDomainBlacklist = flag.String("domain-blacklist", "", "Path to domain blacklist file.")
+	flagDomainPolluted  = flag.String("domain-polluted", "", "Path to polluted domains list. Queries of these domains will not be sent to DNS in China.")
+
+	flagResolvers        resolverAddrs = []string{"119.29.29.29:53", "114.114.114.114:53", "8.8.8.8:53", "208.67.222.222:443"}
+	flagTrustedResolvers resolverAddrs
 )
 
-// DNS Proxy Implementation Guidelines: https://tools.ietf.org/html/rfc5625
-// DNS query processing: https://tools.ietf.org/html/rfc1034#section-3.7
-// Happy Eyeballs: https://tools.ietf.org/html/rfc6555#section-5.4 and #section-6
-func handle(w dns.ResponseWriter, req *dns.Msg) {
-	// defer w.Close()
-	logrus.Infoln("Question:", &req.Question[0])
+func init() {
+	flag.Var(&flagResolvers, "s", "Upstream DNS servers. Need China route list to check whether it's a trusted server or not.")
+	flag.Var(&flagTrustedResolvers, "trusted-servers", "Servers which (located in China but) can be trusted.")
+}
 
-	req.RecursionDesired = true
-	if *flagUDPMaxBytes > dns.MinMsgSize {
-		// https://tools.ietf.org/html/rfc6891#section-6.2.5
-		if e := req.IsEdns0(); e != nil {
-			if e.UDPSize() < uint16(*flagUDPMaxBytes) {
-				e.SetUDPSize(uint16(*flagUDPMaxBytes))
-			}
+type resolverAddrs []string
+
+func (rs *resolverAddrs) String() string {
+	sb := new(strings.Builder)
+
+	lastIdx := len(*rs) - 1
+	for i, addr := range *rs {
+		if host, port, _ := net.SplitHostPort(addr); port == "53" {
+			sb.WriteString(host)
 		} else {
-			req.SetEdns0(uint16(*flagUDPMaxBytes), false)
+			sb.WriteString(addr)
+		}
+		if i < lastIdx {
+			sb.WriteByte(',')
 		}
 	}
-
-	reply, rtt, err := udpCli.Exchange(req, *flagResolver)
-	if err != nil {
-		logrus.WithError(err).Error("UDP query failed.")
-		reply, rtt, err = tcpCli.Exchange(req, *flagResolver)
-		if err != nil {
-			logrus.WithError(err).Error("TCP query failed.")
-		}
-	}
-	if reply != nil {
-		logrus.Infof("Query RTT: %s", rtt)
-		// https://github.com/miekg/dns/issues/216
-		reply.Compress = true
-	} else {
-		reply = new(dns.Msg)
-		reply.SetReply(req)
-	}
-
-	w.WriteMsg(reply)
+	return sb.String()
 }
 
-// DNS Compression: https://tools.ietf.org/html/rfc1035#section-4.1.4
-// DNS compression pointer mutation: https://gist.github.com/klzgrad/f124065c0616022b65e5#file-sendmsg-c-L30-L63
-func handleMutation(w dns.ResponseWriter, req *dns.Msg) {
-	// defer w.Close()
-	logrus.Infoln("Question:", &req.Question[0])
-
-	req.RecursionDesired = true
-	if *flagUDPMaxBytes > dns.MinMsgSize {
-		// https://tools.ietf.org/html/rfc6891#section-6.2.5
-		if e := req.IsEdns0(); e != nil {
-			if e.UDPSize() < uint16(*flagUDPMaxBytes) {
-				e.SetUDPSize(uint16(*flagUDPMaxBytes))
+func (rs *resolverAddrs) Set(s string) error {
+	addrs := strings.Split(s, ",")
+	for i, addr := range addrs {
+		if _, _, err := net.SplitHostPort(addr); err != nil {
+			if strings.Contains(err.Error(), "missing port") {
+				addrs[i] = net.JoinHostPort(addr, "53")
+			} else {
+				return err
 			}
-		} else {
-			req.SetEdns0(uint16(*flagUDPMaxBytes), false)
 		}
 	}
-
-	reply, rtt, err := exchangeMutation(req)
-	if err == nil {
-		logrus.Infof("Query RTT: %s", rtt)
-		reply.Compress = true
-	} else {
-		logrus.WithError(err).Error("Exchange failed.")
-		reply = new(dns.Msg)
-		reply.SetReply(req)
-	}
-
-	w.WriteMsg(reply)
+	*rs = addrs
+	return nil
 }
 
-func exchangeMutation(req *dns.Msg) (reply *dns.Msg, rtt time.Duration, err error) {
-	buffer, err := req.Pack()
-	if err != nil {
-		return
-	}
-
-	if len(req.Question) > 0 {
-		buffer = mutateQuestion(buffer)
-	}
-
-	conn, err := udpCli.Dial(*flagResolver)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	// If EDNS0 is used use that for size.
-	opt := req.IsEdns0()
-	if opt != nil && opt.UDPSize() >= dns.MinMsgSize {
-		conn.UDPSize = opt.UDPSize()
-	}
-	// Otherwise use the client's configured UDP size.
-	if opt == nil && udpCli.UDPSize >= dns.MinMsgSize {
-		conn.UDPSize = udpCli.UDPSize
-	}
-
-	conn.TsigSecret = udpCli.TsigSecret
-	t := time.Now()
-	conn.SetWriteDeadline(t.Add(udpCli.Timeout))
-	if _, err = conn.Write(buffer); err != nil {
-		return
-	}
-
-	conn.SetReadDeadline(time.Now().Add(udpCli.Timeout))
-	reply, err = conn.ReadMsg()
-	if err == nil && reply.Id != req.Id {
-		err = dns.ErrId
-	}
-	rtt = time.Since(t)
-	return
-}
-
-func mutateQuestion(bytes []byte) []byte {
-	// 16 is the minimum length of a valid DNS query
-	length := len(bytes)
-	if length <= 16 {
-		return bytes
-	}
-
-	var (
-		buffer = bytes
-		found  = false
-		offset = 12
-	)
-	for offset < length-4 {
-		if bytes[offset]&0xC0 != 0 {
-			break
+func parseListenAddr() string {
+	listen := *flagListen
+	if *flagListen == defaultListen {
+		host, port, _ := net.SplitHostPort(defaultListen)
+		iport, _ := strconv.Atoi(port)
+		if *flagBind != host || *flagPort != iport {
+			listen = net.JoinHostPort(host, port)
 		}
-		// end of the QName
-		if bytes[offset] == 0 {
-			found = true
-			offset++
-			break
-		}
-		// skip by label length
-		offset += int(bytes[offset]) + 1
 	}
-
-	if found {
-		buffer = make([]byte, length+1)
-		copy(buffer, bytes[:offset-1])
-		buffer[offset-1], buffer[offset] = 0xC0, 0x06
-		copy(buffer[offset+1:], bytes[offset:])
-	}
-	return buffer
+	return listen
 }
 
 func main() {
 	flag.Parse()
-	if *flagMutation {
-		dns.HandleFunc(".", handleMutation)
-	} else {
-		dns.HandleFunc(".", handle)
+	if *flagVersion {
+		fmt.Println(gochinadns.GetVersion())
+		return
 	}
-	udpServer := &dns.Server{Addr: *flagListen, Net: "udp", ReusePort: true}
-	tcpServer := &dns.Server{Addr: *flagListen, Net: "tcp", ReusePort: true}
+	if *flagVerbose {
+		logrus.SetLevel(logrus.DebugLevel)
+	}
 
-	eg, _ := errgroup.WithContext(context.Background())
-	eg.Go(udpServer.ListenAndServe)
-	eg.Go(tcpServer.ListenAndServe)
-	eg.Wait()
+	listen := parseListenAddr()
+	opts := []gochinadns.ServerOption{
+		gochinadns.WithListenAddr(listen),
+		gochinadns.WithUDPMaxBytes(*flagUDPMaxBytes),
+		gochinadns.WithTCPOnly(*flagForceTCP),
+		gochinadns.WithMutation(*flagMutation),
+		gochinadns.WithBidirectional(*flagBidirectional),
+		gochinadns.WithTimeout(*flagTimeout),
+		gochinadns.WithDelay(time.Duration(*flagDelay * float64(time.Second))),
+		gochinadns.WithTrustedResolvers(flagTrustedResolvers...),
+		gochinadns.WithResolvers(flagResolvers...),
+	}
+	if *flagTestDomains != "" {
+		opts = append(opts, gochinadns.WithTestDomains(strings.Split(*flagTestDomains, ",")...))
+	}
+	if *flagCHNList != "" {
+		opts = append(opts, gochinadns.WithCHNList(*flagCHNList))
+	}
+	if *flagIPBlacklist != "" {
+		opts = append(opts, gochinadns.WithIPBlacklist(*flagIPBlacklist))
+	}
+	if *flagDomainBlacklist != "" {
+		opts = append(opts, gochinadns.WithDomainBlacklist(*flagDomainBlacklist))
+	}
+	if *flagDomainPolluted != "" {
+		opts = append(opts, gochinadns.WithDomainPolluted(*flagDomainPolluted))
+	}
+
+	server, err := gochinadns.NewServer(opts...)
+	if err != nil {
+		panic(err)
+	}
+	panic(server.Run())
 }
