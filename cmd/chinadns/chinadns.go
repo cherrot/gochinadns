@@ -27,16 +27,16 @@ var (
 	flagUDPMaxBytes     = flag.Int("udp-max-bytes", 1410, "Default DNS max message size on UDP.")
 	flagForceTCP        = flag.Bool("force-tcp", false, "Force DNS queries use TCP only.")
 	flagMutation        = flag.Bool("m", true, "Enable compression pointer mutation in DNS queries.")
-	flagBidirectional   = flag.Bool("d", true, "Drop results of trusted servers which containing IPs in China.")
+	flagBidirectional   = flag.Bool("d", true, "Drop results of trusted servers which containing IPs in China. (Bidirectional mode.)")
 	flagTimeout         = flag.Duration("timeout", time.Second, "DNS request timeout")
 	flagDelay           = flag.Float64("y", 0.1, "Delay (in seconds) to query another DNS server when no reply received.")
 	flagTestDomains     = flag.String("test-domains", "qq.com,163.com", "Domain names to test DNS connection health.")
-	flagCHNList         = flag.String("c", "./chnroute.txt", "Path to China route list. Both IPv4 and IPv6 are supported. See http://ipverse.net")
+	flagCHNList         = flag.String("c", "./china.list", "Path to China route list. Both IPv4 and IPv6 are supported. See http://ipverse.net")
 	flagIPBlacklist     = flag.String("l", "", "Path to IP blacklist file.")
 	flagDomainBlacklist = flag.String("domain-blacklist", "", "Path to domain blacklist file.")
 	flagDomainPolluted  = flag.String("domain-polluted", "", "Path to polluted domains list. Queries of these domains will not be sent to DNS in China.")
 
-	flagResolvers        resolverAddrs = []string{"119.29.29.29:53", "114.114.114.114:53", "8.8.8.8:53", "208.67.222.222:443"}
+	flagResolvers        resolverAddrs = []string{"119.29.29.29:53", "114.114.114.114:53", "8.8.8.8:53", "168.126.63.1:53"}
 	flagTrustedResolvers resolverAddrs
 )
 

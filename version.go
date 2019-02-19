@@ -4,7 +4,7 @@ import "fmt"
 
 const (
 	name    = "GoChinaDNS"
-	version = "BAD-VERSION"
+	version = "v1.0"
 )
 
 // GetVersion returns server version.
