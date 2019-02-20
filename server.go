@@ -70,6 +70,8 @@ func (s *Server) Run() error {
 	return eg.Wait()
 }
 
+const _loop = 5
+
 func (s *Server) checkDNSConnection() error {
 	type test struct {
 		addr   string
@@ -84,7 +86,7 @@ func (s *Server) checkDNSConnection() error {
 
 	for i, resolver := range s.TrustedServers {
 		trusted[i].addr = resolver
-		for j := 0; j < 10; j++ {
+		for j := 0; j < _loop; j++ {
 			for _, name := range s.TestDomains {
 				req.SetQuestion(dns.Fqdn(name), dns.TypeA)
 				var (
@@ -103,7 +105,9 @@ func (s *Server) checkDNSConnection() error {
 				trusted[i].rttAvg += rtt
 			}
 		}
-		trusted[i].rttAvg /= time.Duration(10*len(s.TestDomains) - trusted[i].errCnt)
+		if trusted[i].rttAvg > 0 {
+			trusted[i].rttAvg /= time.Duration(_loop*len(s.TestDomains) - trusted[i].errCnt)
+		}
 		if trusted[i].errCnt > 2*len(s.TestDomains) {
 			tLen--
 		}
@@ -120,7 +124,7 @@ func (s *Server) checkDNSConnection() error {
 
 	for i, resolver := range s.UntrustedServers {
 		untrusted[i].addr = resolver
-		for j := 0; j < 10; j++ {
+		for j := 0; j < _loop; j++ {
 			for _, name := range s.TestDomains {
 				req.SetQuestion(dns.Fqdn(name), dns.TypeA)
 				_, rtt, err := s.Lookup(req, resolver)
@@ -131,7 +135,9 @@ func (s *Server) checkDNSConnection() error {
 				untrusted[i].rttAvg += rtt
 			}
 		}
-		untrusted[i].rttAvg /= time.Duration(10*len(s.TestDomains) - untrusted[i].errCnt)
+		if untrusted[i].rttAvg > 0 {
+			untrusted[i].rttAvg /= time.Duration(_loop*len(s.TestDomains) - untrusted[i].errCnt)
+		}
 		if untrusted[i].errCnt > 2*len(s.TestDomains) {
 			uLen--
 		}

@@ -21,7 +21,7 @@ var (
 	flagPort            = flag.Int("p", 53, "Listening port.")
 	flagUDPMaxBytes     = flag.Int("udp-max-bytes", 1410, "Default DNS max message size on UDP.")
 	flagForceTCP        = flag.Bool("force-tcp", false, "Force DNS queries use TCP only.")
-	flagMutation        = flag.Bool("m", true, "Enable compression pointer mutation in DNS queries.")
+	flagMutation        = flag.Bool("m", false, "Enable compression pointer mutation in DNS queries.")
 	flagBidirectional   = flag.Bool("d", true, "Drop results of trusted servers which containing IPs in China. (Bidirectional mode.)")
 	flagTimeout         = flag.Duration("timeout", time.Second, "DNS request timeout")
 	flagDelay           = flag.Float64("y", 0.1, "Delay (in seconds) to query another DNS server when no reply received.")
@@ -31,8 +31,8 @@ var (
 	flagDomainBlacklist = flag.String("domain-blacklist", "", "Path to domain blacklist file.")
 	flagDomainPolluted  = flag.String("domain-polluted", "", "Path to polluted domains list. Queries of these domains will not be sent to DNS in China.")
 
-	flagResolvers        resolverAddrs = []string{"119.29.29.29:53", "114.114.114.114:53", "8.8.8.8:53", "168.126.63.1:53"}
-	flagTrustedResolvers resolverAddrs
+	flagResolvers        resolverAddrs = []string{"119.29.29.29:53", "114.114.114.114:53"}
+	flagTrustedResolvers resolverAddrs = []string{"193.112.15.186:2323"}
 )
 
 func init() {
