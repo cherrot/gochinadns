@@ -98,21 +98,29 @@ func (s *Server) processUntrustedAnswer(ctx context.Context, logger *logrus.Entr
 	reply = rep
 	logger = logger.WithField("answer", answer)
 
-	contain, err := s.ChinaCIDR.Contains(answer)
+	hit, err := s.IPBlacklist.Contains(answer)
 	if err != nil {
-		logger.WithError(err).Error("CIDR error.")
+		logger.WithError(err).Error("Blacklist CIDR error.")
 	}
-	if contain {
-		logger.Debug("Answer belongs to China. Use it.")
-		return
+	if hit {
+		logger.Debug("Answer hit blacklist. Wait for trusted reply.")
+	} else {
+		contain, err := s.ChinaCIDR.Contains(answer)
+		if err != nil {
+			logger.WithError(err).Error("CIDR error.")
+		}
+		if contain {
+			logger.Debug("Answer belongs to China. Use it.")
+			return
+		}
+		logger.Debug("Answer is overseas. Wait for trusted reply.")
 	}
 
-	logger.Debug("Answer may be polluted. Wait for trusted reply.")
 	select {
 	case rep := <-trusted:
 		reply = s.processReply(ctx, logger, rep, nil, s.processTrustedAnswer)
 	case <-ctx.Done():
-		logger.Debug("No trusted reply. Use this as fallback.")
+		logger.Warn("No trusted reply. Use this as fallback.")
 	}
 	return
 }
@@ -121,20 +129,29 @@ func (s *Server) processTrustedAnswer(ctx context.Context, logger *logrus.Entry,
 	reply = rep
 	logger = logger.WithField("answer", answer)
 
-	if !s.Bidirectional {
-		logger.Debug("Answer is trusted. Use it.")
-		return
+	hit, err := s.IPBlacklist.Contains(answer)
+	if err != nil {
+		logger.WithError(err).Error("Blacklist CIDR error.")
+	}
+	if hit {
+		logger.Debug("Answer hit blacklist. Wait for trusted reply.")
+	} else {
+		if !s.Bidirectional {
+			logger.Debug("Answer is trusted. Use it.")
+			return
+		}
+
+		contain, err := s.ChinaCIDR.Contains(answer)
+		if err != nil {
+			logger.WithError(err).Error("CIDR error.")
+		}
+		if !contain {
+			logger.Debug("Answer is trusted and overseas. Use it.")
+			return
+		}
+		logger.Debug("Answer may not be the nearest. Wait for untrusted reply.")
 	}
 
-	contain, err := s.ChinaCIDR.Contains(answer)
-	if err != nil {
-		logger.WithError(err).Error("CIDR error.")
-	}
-	if !contain {
-		logger.Debug("Answer is trusted and overseas. Use it.")
-		return
-	}
-	logger.Debug("Answer may not be the nearest. Wait for untrusted reply.")
 	select {
 	case rep := <-untrusted:
 		reply = s.processReply(ctx, logger, rep, nil, s.processUntrustedAnswer)

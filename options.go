@@ -37,6 +37,7 @@ func newServerOptions() *serverOptions {
 		Listen:      "[::]:53",
 		Timeout:     time.Second,
 		TestDomains: []string{"qq.com"},
+		IPBlacklist: cidranger.NewPCTrieRanger(),
 	}
 }
 
