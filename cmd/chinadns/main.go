@@ -23,6 +23,7 @@ var (
 	flagForceTCP        = flag.Bool("force-tcp", false, "Force DNS queries use TCP only.")
 	flagMutation        = flag.Bool("m", false, "Enable compression pointer mutation in DNS queries.")
 	flagBidirectional   = flag.Bool("d", true, "Drop results of trusted servers which containing IPs in China. (Bidirectional mode.)")
+	flagReusePort       = flag.Bool("reuse-port", true, "Enable SO_REUSEPORT to gain some performance optimization. Need Linux>=3.9")
 	flagTimeout         = flag.Duration("timeout", time.Second, "DNS request timeout")
 	flagDelay           = flag.Float64("y", 0.1, "Delay (in seconds) to query another DNS server when no reply received.")
 	flagTestDomains     = flag.String("test-domains", "qq.com,163.com", "Domain names to test DNS connection health.")
@@ -91,6 +92,7 @@ func main() {
 		gochinadns.WithTCPOnly(*flagForceTCP),
 		gochinadns.WithMutation(*flagMutation),
 		gochinadns.WithBidirectional(*flagBidirectional),
+		gochinadns.WithReusePort(*flagReusePort),
 		gochinadns.WithTimeout(*flagTimeout),
 		gochinadns.WithDelay(time.Duration(*flagDelay * float64(time.Second))),
 		gochinadns.WithTrustedResolvers(flagTrustedResolvers...),

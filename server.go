@@ -49,8 +49,8 @@ func NewServer(opts ...ServerOption) (s *Server, err error) {
 		serverOptions: o,
 		UDPCli:        &dns.Client{Timeout: o.Timeout, Net: "udp"},
 		TCPCli:        &dns.Client{Timeout: o.Timeout, Net: "tcp"},
-		UDPServer:     &dns.Server{Addr: o.Listen, Net: "udp", ReusePort: true},
-		TCPServer:     &dns.Server{Addr: o.Listen, Net: "tcp", ReusePort: true},
+		UDPServer:     &dns.Server{Addr: o.Listen, Net: "udp", ReusePort: o.ReusePort},
+		TCPServer:     &dns.Server{Addr: o.Listen, Net: "tcp", ReusePort: o.ReusePort},
 	}
 	s.UDPServer.Handler = dns.HandlerFunc(s.Serve)
 	s.TCPServer.Handler = dns.HandlerFunc(s.Serve)

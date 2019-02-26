@@ -47,6 +47,8 @@ Usage of ./chinadns:
   -m    Enable compression pointer mutation in DNS queries.
   -p int
         Listening port. (default 53)
+  -reuse-port
+        Enable SO_REUSEPORT to gain some performance optimization. Need Linux>=3.9 (default true)
   -s value
         Upstream DNS servers. Need China route list to check whether it's a trusted server or not. (default 119.29.29.29,114.114.114.114)
   -test-domains string

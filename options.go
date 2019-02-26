@@ -28,6 +28,7 @@ type serverOptions struct {
 	TCPOnly          bool          //Use TCP only
 	Mutation         bool          //Enable DNS pointer mutation for trusted servers
 	Bidirectional    bool          //Drop results of trusted servers which containing IPs in China
+	ReusePort        bool          //Enable SO_REUSEPORT
 	Delay            time.Duration //Delay (in seconds) to query another DNS server when no reply received
 	TestDomains      []string      //Domain names to test connection health before starting a server
 }
@@ -241,6 +242,13 @@ func WithMutation(b bool) ServerOption {
 func WithBidirectional(b bool) ServerOption {
 	return func(o *serverOptions) error {
 		o.Bidirectional = b
+		return nil
+	}
+}
+
+func WithReusePort(b bool) ServerOption {
+	return func(o *serverOptions) error {
+		o.ReusePort = b
 		return nil
 	}
 }
