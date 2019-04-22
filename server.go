@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
@@ -55,9 +54,7 @@ func NewServer(opts ...ServerOption) (s *Server, err error) {
 	s.UDPServer.Handler = dns.HandlerFunc(s.Serve)
 	s.TCPServer.Handler = dns.HandlerFunc(s.Serve)
 
-	if err = s.checkDNSConnection(); err != nil {
-		return nil, err
-	}
+	s.refineResolvers()
 	return
 }
 
@@ -70,9 +67,9 @@ func (s *Server) Run() error {
 	return eg.Wait()
 }
 
-const _loop = 5
+const _loop = 2
 
-func (s *Server) checkDNSConnection() error {
+func (s *Server) refineResolvers() {
 	type test struct {
 		addr   string
 		errCnt int
@@ -108,7 +105,7 @@ func (s *Server) checkDNSConnection() error {
 		if trusted[i].rttAvg > 0 {
 			trusted[i].rttAvg /= time.Duration(_loop*len(s.TestDomains) - trusted[i].errCnt)
 		}
-		if trusted[i].errCnt > 2*len(s.TestDomains) {
+		if trusted[i].errCnt > _loop*len(s.TestDomains)/2 {
 			tLen--
 		}
 		logrus.Infof("%s: average RTT %s with %d errors.", resolver, trusted[i].rttAvg, trusted[i].errCnt)
@@ -120,7 +117,6 @@ func (s *Server) checkDNSConnection() error {
 		}
 		return trusted[i].errCnt < trusted[j].errCnt
 	})
-	trusted = trusted[:tLen]
 
 	for i, resolver := range s.UntrustedServers {
 		untrusted[i].addr = resolver
@@ -138,7 +134,7 @@ func (s *Server) checkDNSConnection() error {
 		if untrusted[i].rttAvg > 0 {
 			untrusted[i].rttAvg /= time.Duration(_loop*len(s.TestDomains) - untrusted[i].errCnt)
 		}
-		if untrusted[i].errCnt > 2*len(s.TestDomains) {
+		if untrusted[i].errCnt > _loop*len(s.TestDomains)/2 {
 			uLen--
 		}
 		logrus.Infof("%s: average RTT %s with %d errors.", resolver, untrusted[i].rttAvg, untrusted[i].errCnt)
@@ -150,7 +146,6 @@ func (s *Server) checkDNSConnection() error {
 		}
 		return untrusted[i].errCnt < untrusted[j].errCnt
 	})
-	untrusted = untrusted[:uLen]
 
 	s.TrustedServers = make([]string, len(trusted))
 	s.UntrustedServers = make([]string, len(untrusted))
@@ -161,14 +156,13 @@ func (s *Server) checkDNSConnection() error {
 		s.UntrustedServers[i] = t.addr
 	}
 
-	if len(s.TrustedServers) == 0 {
-		return errors.New("server cannot work with no trusted resolvers")
+	if tLen == 0 {
+		logrus.Error("There seems to be no available trusted resolver. Server may not behave properly.")
 	}
-	if len(s.UntrustedServers) == 0 && s.Bidirectional {
-		return errors.New("untrusted resolvers cannot be empty in bidirectional mode")
+	if uLen == 0 && s.Bidirectional {
+		logrus.Error("There seems to be no untrusted resolver. Server may not behave properly in bidirectional mode.")
 	}
 
 	logrus.Info("Refined trusted resolvers: ", s.TrustedServers)
 	logrus.Info("Refined untrusted resolvers: ", s.UntrustedServers)
-	return nil
 }
