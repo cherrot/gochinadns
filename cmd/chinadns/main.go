@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net"
+	"reflect"
+	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -75,6 +79,50 @@ func (rs *resolverAddrs) Set(s string) error {
 	return nil
 }
 
+func runUntilCanceled(ctx context.Context, f func() error) {
+	minGap := time.Millisecond * 100
+	maxGap := time.Second * 16
+	gap := minGap
+	for {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logrus.Errorf("%s:%s", r, string(debug.Stack()))
+				}
+			}()
+			err := f()
+			if err == nil {
+				gap = minGap
+			} else {
+				logrus.WithError(err).Errorf("Fail to exec %s", getFunctionName(f))
+			}
+		}()
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(gap):
+		}
+		gap = gap * 2
+		if gap > maxGap {
+			gap = maxGap
+		}
+	}
+}
+
+func getFunctionName(i interface{}) string {
+	f := runtime.FuncForPC(reflect.ValueOf(i).Pointer())
+	fn, ln := f.FileLine(f.Entry())
+	return fmt.Sprintf("%s[%s:%d]", trimLocPrefix(f.Name()), trimLocPrefix(fn), ln)
+}
+
+func trimLocPrefix(s string) string {
+	t := strings.SplitN(s, "gochinadns/", 2)
+	if len(t) == 2 {
+		return t[1]
+	}
+	return s
+}
+
 func main() {
 	flag.Parse()
 	if *flagVersion {
@@ -118,5 +166,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	panic(server.Run())
+
+	runUntilCanceled(context.Background(), server.Run)
 }
