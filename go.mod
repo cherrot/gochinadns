@@ -1,7 +1,7 @@
 module github.com/cherrot/gochinadns
 
 require (
-	github.com/miekg/dns v1.1.3
+	github.com/miekg/dns v1.1.9
 	github.com/pkg/errors v0.8.1
 	github.com/sirupsen/logrus v1.3.0
 	github.com/yl2chen/cidranger v0.0.0-20180214081945-928b519e5268
