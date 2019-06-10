@@ -44,9 +44,6 @@ func TestTrieContain(t *testing.T) {
 	trie.Add("api.github.com")
 	trie.Add("cn.")
 
-	if trie.Contain("google.com.") {
-		t.Error("`google.com.` should not be normalized to `google.com`")
-	}
 	if trie.Contain("www.github.com") {
 		t.Error("api.github.com should not contain www.github.com")
 	}
@@ -65,6 +62,12 @@ func TestTrieContain(t *testing.T) {
 	}
 	if !trie.Contain("www.google.com") || !trie.Contain("mail.google.com") {
 		t.Error("www.google.com and mail.google.com should be contained by google.com")
+	}
+	if !trie.Contain("google.com.") {
+		t.Error("`google.com.` should be treated like `google.com`")
+	}
+	if !trie.Contain("www.google.com.") {
+		t.Error("`www.google.com.` should be contained by `google.com`")
 	}
 	if !trie.Contain("12306.cn") {
 		t.Error("cn should contain all .cn domains")
