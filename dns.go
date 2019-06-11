@@ -35,6 +35,8 @@ func (s *Server) Serve(w dns.ResponseWriter, req *dns.Msg) {
 		cancel()
 	}()
 
+	req.RecursionDesired = true
+
 	trusted := make(chan *dns.Msg, 1)
 	untrusted := make(chan *dns.Msg, 1)
 	if s.Mutation {

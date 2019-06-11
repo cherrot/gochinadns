@@ -10,9 +10,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// LookupFunc looks up DNS request to the given server and returns DNS reply, its RTT time and an error.
+type LookupFunc func(request *dns.Msg, server string) (reply *dns.Msg, rtt time.Duration, err error)
+
 func lookupInServers(
-	ctx context.Context, cancel context.CancelFunc, result chan<- *dns.Msg, req *dns.Msg, servers []string, delay time.Duration,
-	lookupFunc func(*dns.Msg, string) (*dns.Msg, time.Duration, error),
+	ctx context.Context, cancel context.CancelFunc, result chan<- *dns.Msg, req *dns.Msg,
+	servers []string, waitInterval time.Duration, lookup LookupFunc,
 ) {
 	defer cancel()
 	if len(servers) == 0 {
@@ -21,7 +24,7 @@ func lookupInServers(
 	var errChain error
 	logger := logrus.WithField("question", questionString(&req.Question[0]))
 
-	ticker := time.NewTicker(delay)
+	ticker := time.NewTicker(waitInterval)
 	defer ticker.Stop()
 	queryNext := make(chan struct{}, len(servers))
 	queryNext <- struct{}{}
@@ -31,7 +34,7 @@ func lookupInServers(
 		defer wg.Done()
 		logger := logger.WithField("server", server)
 
-		reply, rtt, err := lookupFunc(req, server)
+		reply, rtt, err := lookup(req, server)
 		if err != nil {
 			errChain = errors.Wrapf(err, "%d", idx)
 			queryNext <- struct{}{}
@@ -75,9 +78,9 @@ func (s *Server) Lookup(req *dns.Msg, server string) (reply *dns.Msg, rtt time.D
 		"question": questionString(&req.Question[0]),
 		"server":   server,
 	})
-	req.RecursionDesired = true
 
 	if !s.TCPOnly {
+		req := req.Copy()
 		setUDPSize(req, s.UDPMaxSize)
 		reply, rtt, err = s.UDPCli.Exchange(req, server)
 		if err != nil {
@@ -107,14 +110,19 @@ func (s *Server) LookupMutation(req *dns.Msg, server string) (reply *dns.Msg, rt
 		"question": questionString(&req.Question[0]),
 		"server":   server,
 	})
-	req.RecursionDesired = true
 	// cleanEdns0(req)
-	var udpSize int
-	if !s.TCPOnly {
-		udpSize = setUDPSize(req, s.UDPMaxSize)
-	}
 
-	buffer, err := req.Pack()
+	var (
+		udpSize int
+		buffer  []byte
+	)
+	if !s.TCPOnly {
+		req := req.Copy()
+		udpSize = setUDPSize(req, s.UDPMaxSize)
+		buffer, err = req.Pack()
+	} else {
+		buffer, err = req.Pack()
+	}
 	if err != nil {
 		return nil, 0, errors.Wrap(err, "fail to pack request")
 	}
