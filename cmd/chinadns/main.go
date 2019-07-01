@@ -23,7 +23,7 @@ var (
 
 	flagBind            = flag.String("b", "::", "Bind address.")
 	flagPort            = flag.Int("p", 53, "Listening port.")
-	flagUDPMaxBytes     = flag.Int("udp-max-bytes", 1410, "Default DNS max message size on UDP.")
+	flagUDPMaxBytes     = flag.Int("udp-max-bytes", 4096, "Default DNS max message size on UDP.")
 	flagForceTCP        = flag.Bool("force-tcp", false, "Force DNS queries use TCP only.")
 	flagMutation        = flag.Bool("m", false, "Enable compression pointer mutation in DNS queries.")
 	flagBidirectional   = flag.Bool("d", true, "Drop results of trusted servers which containing IPs in China. (Bidirectional mode.)")
