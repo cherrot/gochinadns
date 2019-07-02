@@ -21,7 +21,6 @@ func lookupInServers(
 	if len(servers) == 0 {
 		return
 	}
-	var errChain error
 	logger := logrus.WithField("question", questionString(&req.Question[0]))
 
 	ticker := time.NewTicker(waitInterval)
@@ -30,13 +29,12 @@ func lookupInServers(
 	queryNext <- struct{}{}
 	var wg sync.WaitGroup
 
-	doLookup := func(idx int, server string) {
+	doLookup := func(server string) {
 		defer wg.Done()
 		logger := logger.WithField("server", server)
 
-		reply, rtt, err := lookup(req, server)
+		reply, rtt, err := lookup(req.Copy(), server)
 		if err != nil {
-			errChain = errors.Wrapf(err, "%d", idx)
 			queryNext <- struct{}{}
 			return
 		}
@@ -50,23 +48,20 @@ func lookupInServers(
 	}
 
 LOOP:
-	for idx, server := range servers {
+	for _, server := range servers {
 		select {
 		case <-ctx.Done():
 			break LOOP
 		case <-queryNext:
 			wg.Add(1)
-			go doLookup(idx, server)
+			go doLookup(server)
 		case <-ticker.C:
 			wg.Add(1)
-			go doLookup(idx, server)
+			go doLookup(server)
 		}
 	}
 
 	wg.Wait()
-	if errChain != nil {
-		logger.WithError(errChain).Error("Error hanppens.")
-	}
 }
 
 // Lookup send a DNS request to the specific server and get its corresponding reply.
@@ -80,8 +75,6 @@ func (s *Server) Lookup(req *dns.Msg, server string) (reply *dns.Msg, rtt time.D
 	})
 
 	if !s.TCPOnly {
-		req := req.Copy()
-		setUDPSize(req, s.UDPMaxSize)
 		reply, rtt, err = s.UDPCli.Exchange(req, server)
 		if err != nil {
 			logger.WithError(err).Error("Fail to send UDP query. Will retry in TCP.")
@@ -110,19 +103,9 @@ func (s *Server) LookupMutation(req *dns.Msg, server string) (reply *dns.Msg, rt
 		"question": questionString(&req.Question[0]),
 		"server":   server,
 	})
-	// cleanEdns0(req)
 
-	var (
-		udpSize int
-		buffer  []byte
-	)
-	if !s.TCPOnly {
-		req := req.Copy()
-		udpSize = setUDPSize(req, s.UDPMaxSize)
-		buffer, err = req.Pack()
-	} else {
-		buffer, err = req.Pack()
-	}
+	var buffer []byte
+	buffer, err = req.Pack()
 	if err != nil {
 		return nil, 0, errors.Wrap(err, "fail to pack request")
 	}
@@ -131,7 +114,8 @@ func (s *Server) LookupMutation(req *dns.Msg, server string) (reply *dns.Msg, rt
 	t := time.Now()
 	if !s.TCPOnly {
 		ddl := t.Add(s.UDPCli.Timeout)
-		reply, err = rawLookup(s.UDPCli, req.Id, buffer, server, ddl, uint16(udpSize))
+		udpSize := getUDPSize(req)
+		reply, err = rawLookup(s.UDPCli, req.Id, buffer, server, ddl, udpSize)
 		if err != nil {
 			logger.WithError(err).Error("Fail to send UDP mutation query. Will retry in TCP.")
 		}
@@ -176,20 +160,27 @@ func rawLookup(cli *dns.Client, id uint16, req []byte, server string, ddl time.T
 	return reply, err
 }
 
-func setUDPSize(req *dns.Msg, size int) int {
+func setUDPSize(req *dns.Msg, size uint16) uint16 {
 	if size <= dns.MinMsgSize {
 		return dns.MinMsgSize
 	}
 	// https://tools.ietf.org/html/rfc6891#section-6.2.5
 	if e := req.IsEdns0(); e != nil {
-		if e.UDPSize() >= uint16(size) {
-			return int(e.UDPSize())
+		if e.UDPSize() >= size {
+			return e.UDPSize()
 		}
-		e.SetUDPSize(uint16(size))
+		e.SetUDPSize(size)
 		return size
 	}
-	req.SetEdns0(uint16(size), false)
+	req.SetEdns0(size, false)
 	return size
+}
+
+func getUDPSize(req *dns.Msg) uint16 {
+	if e := req.IsEdns0(); e != nil && e.UDPSize() > dns.MinMsgSize {
+		return e.UDPSize()
+	}
+	return dns.MinMsgSize
 }
 
 func cleanEdns0(req *dns.Msg) {

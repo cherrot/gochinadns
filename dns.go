@@ -35,7 +35,7 @@ func (s *Server) Serve(w dns.ResponseWriter, req *dns.Msg) {
 		cancel()
 	}()
 
-	req.RecursionDesired = true
+	s.normalizeRequest(req)
 
 	trusted := make(chan *dns.Msg, 1)
 	untrusted := make(chan *dns.Msg, 1)
@@ -70,6 +70,13 @@ func (s *Server) Serve(w dns.ResponseWriter, req *dns.Msg) {
 
 	w.WriteMsg(reply)
 	logger.Debug("SERVING RTT: ", time.Since(start))
+}
+
+func (s *Server) normalizeRequest(req *dns.Msg) {
+	req.RecursionDesired = true
+	if !s.TCPOnly {
+		setUDPSize(req, uint16(s.UDPMaxSize))
+	}
 }
 
 func (s *Server) processReply(
