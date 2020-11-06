@@ -37,7 +37,7 @@ var (
 	flagDomainPolluted  = flag.String("domain-polluted", "", "Path to polluted domains list. Queries of these domains will not be sent to DNS in China.")
 
 	flagResolvers        resolverAddrs = []string{"119.29.29.29:53", "114.114.114.114:53"}
-	flagTrustedResolvers resolverAddrs = []string{"193.112.15.186:2323"}
+	flagTrustedResolvers resolverAddrs = []string{}
 )
 
 func init() {
