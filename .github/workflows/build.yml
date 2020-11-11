@@ -1,4 +1,4 @@
-name: Go
+name: Build for release
 
 on:
   release:
@@ -36,7 +36,10 @@ jobs:
       env:
         build_os: "windows linux"
         build_arch: "amd64 386 arm arm64 mips mips64 mipsle mips64le"
-      run: gox -ldflags "-s -w" -verbose -os="$build_os" -arch="$build_arch" -output="chinadns-{{.OS}}-{{.Arch}}" 
+      run: gox -ldflags "-s -w -X github.com/cherrot/gochinadns.version=${GITHUB_REF#refs/*/}" -verbose -os="$build_os" -arch="$build_arch" -output="chinadns-{{.OS}}-{{.Arch}}"
+
+    - name: Test
+      run: go test -v
 
     - uses: actions/upload-artifact@v2
       with:
@@ -48,7 +51,7 @@ jobs:
         name: binaries-windows
         path: cmd/chinadns/chinadns-windows-*
 
-  upx-comrpess:
+  upx-compress:
     needs: [build]
     name: UPX compress for embedded architectures
     runs-on: ubuntu-latest
@@ -81,18 +84,21 @@ jobs:
   release:
     name: Add binaries to release
     if: github.event_name == 'release' && github.event.action == 'created' #only run if a release was created
-    needs: [upx-comrpess]
+    needs: [upx-compress]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v2
         with:
           name: binaries-linux
+
       - uses: actions/download-artifact@v2
         with:
           name: binaries-linux-mini
+
       - uses: actions/download-artifact@v2
         with:
           name: binaries-windows
+
       - name: Upload the artifacts
         uses: skx/github-action-publish-binaries@master
         env:
