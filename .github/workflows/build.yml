@@ -1,0 +1,105 @@
+name: Go
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+  
+jobs:
+
+  build:
+    name: Build 
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Set up Go 1.x
+      uses: actions/setup-go@v2
+      with:
+        go-version: ^1.13
+
+    - name: Set up gox
+      run: go get github.com/mitchellh/gox
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v2
+
+    - name: Get dependencies
+      run: |
+        go get -v -t -d ./...
+        if [ -f Gopkg.toml ]; then
+            curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+            dep ensure
+        fi
+
+    - name: Build
+      working-directory: cmd/chinadns
+      env:
+        build_os: "windows linux"
+        build_arch: "amd64 386 arm arm64 mips mips64 mipsle mips64le"
+      run: gox -ldflags "-s -w" -verbose -os="$build_os" -arch="$build_arch" -output="chinadns-{{.OS}}-{{.Arch}}" 
+
+    - uses: actions/upload-artifact@v2
+      with:
+        name: binaries-linux
+        path: cmd/chinadns/chinadns-linux-*
+
+    - uses: actions/upload-artifact@v2
+      with:
+        name: binaries-windows
+        path: cmd/chinadns/chinadns-windows-*
+
+  upx-comrpess:
+    needs: [build]
+    name: UPX compress for embedded architectures
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [arm,arm64,mips,mipsle]
+      max-parallel: 4
+    steps:
+      - name: Set up upx
+        run: go get github.com/mitchellh/gox
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: binaries-linux
+
+      - run: mkdir mini
+      - run: chmod +x chinadns-linux-${{ matrix.arch }}
+
+      - uses: crazy-max/ghaction-upx@v1
+        with:
+          version: latest
+          file: chinadns-linux-${{ matrix.arch }}
+          args: -o mini/chinadns-linux-${{ matrix.arch }}-mini
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: binaries-linux-mini
+          path: mini/*
+
+  release:
+    name: Add binaries to release
+    if: github.event_name == 'release' && github.event.action == 'created' #only run if a release was created
+    needs: [upx-comrpess]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v2
+        with:
+          name: binaries-linux
+      - uses: actions/download-artifact@v2
+        with:
+          name: binaries-linux-mini
+      - uses: actions/download-artifact@v2
+        with:
+          name: binaries-windows
+      - name: Upload the artifacts
+        uses: skx/github-action-publish-binaries@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: 'chinadns-*'
+
+        
+
+
