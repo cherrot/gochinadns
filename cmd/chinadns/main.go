@@ -127,6 +127,7 @@ func main() {
 	flag.Parse()
 	if *flagVersion {
 		fmt.Println(gochinadns.GetVersion())
+		fmt.Printf("Go version: %s\n", runtime.Version())
 		return
 	}
 	if *flagVerbose {
