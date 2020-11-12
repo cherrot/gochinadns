@@ -60,9 +60,6 @@ jobs:
         arch: [arm,arm64,mips,mipsle]
       max-parallel: 4
     steps:
-      - name: Set up upx
-        run: go get github.com/mitchellh/gox
-
       - uses: actions/download-artifact@v2
         with:
           name: binaries-linux
