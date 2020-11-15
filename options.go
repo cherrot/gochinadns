@@ -5,12 +5,43 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/yl2chen/cidranger"
 )
+
+// resolver contains info about a single upstream DNS server.
+type resolver struct {
+	addr  string   //address of the resolver in format ip:port
+	proto []string //list of protocols to use with this resolver, in order of execution
+}
+
+func (r resolver) getAddr() string {
+	return r.addr
+}
+
+func (r resolver) getProto() []string {
+	return r.proto
+}
+
+func (r resolver) String() string {
+	return r.getAddr()
+}
+
+// resolverArray is just an array of type resolver.
+// It's not really required other than to define String() to print it nicely in the log.
+type resolverArray []resolver
+
+func (r resolverArray) String() string {
+	sb := new(strings.Builder)
+	for _, server := range r {
+		sb.WriteString(fmt.Sprintf("%s%s ", server.getProto(), server.getAddr()))
+	}
+	return sb.String()
+}
 
 // ServerOption provides ChinaDNS server options. Please use WithXXX functions to generate Options.
 type ServerOption func(*serverOptions) error
@@ -21,8 +52,8 @@ type serverOptions struct {
 	IPBlacklist      cidranger.Ranger
 	DomainBlacklist  *domainTrie
 	DomainPolluted   *domainTrie
-	TrustedServers   []string      //DNS servers which can be trusted
-	UntrustedServers []string      //DNS servers which may return polluted results
+	TrustedServers   resolverArray //DNS servers which can be trusted
+	UntrustedServers resolverArray //DNS servers which may return polluted results
 	Timeout          time.Duration // Timeout for one DNS query
 	UDPMaxSize       int           //Max message size for UDP queries
 	TCPOnly          bool          //Use TCP only
@@ -174,8 +205,12 @@ func WithDomainPolluted(path string) ServerOption {
 
 func WithTrustedResolvers(resolvers ...string) ServerOption {
 	return func(o *serverOptions) error {
-		for _, addr := range resolvers {
-			o.TrustedServers = uniqueAppend(o.TrustedServers, addr)
+		for _, schema := range resolvers {
+			newResolver, err := schemaToResolver(schema)
+			if err != nil {
+				return errors.Wrap(err, "Schema error")
+			}
+			o.TrustedServers = uniqueAppendResolver(o.TrustedServers, newResolver)
 		}
 		return nil
 	}
@@ -186,25 +221,39 @@ func WithResolvers(resolvers ...string) ServerOption {
 		if o.ChinaCIDR == nil {
 			return errNotReady
 		}
-		for _, addr := range resolvers {
-			host, _, _ := net.SplitHostPort(addr)
+		for _, schema := range resolvers {
+			newResolver, err := schemaToResolver(schema)
+			if err != nil {
+				return errors.Wrap(err, "Schema error")
+			}
+
+			host, _, _ := net.SplitHostPort(newResolver.getAddr())
 			contain, err := o.ChinaCIDR.Contains(net.ParseIP(host))
 			if err != nil {
 				return errors.Wrap(err, fmt.Sprintf("fail to check whether %s is in China", host))
 			}
 			if contain {
-				o.UntrustedServers = uniqueAppend(o.UntrustedServers, addr)
+				o.UntrustedServers = uniqueAppendResolver(o.UntrustedServers, newResolver)
 			} else {
-				o.TrustedServers = uniqueAppend(o.TrustedServers, addr)
+				o.TrustedServers = uniqueAppendResolver(o.TrustedServers, newResolver)
 			}
 		}
 		return nil
 	}
 }
 
-func uniqueAppend(to []string, item string) []string {
+func uniqueAppendString(to []string, item string) []string {
 	for _, e := range to {
 		if item == e {
+			return to
+		}
+	}
+	return append(to, item)
+}
+
+func uniqueAppendResolver(to []resolver, item resolver) []resolver {
+	for _, e := range to {
+		if item.getAddr() == e.getAddr() {
 			return to
 		}
 	}

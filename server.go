@@ -71,7 +71,7 @@ const _loop = 2
 
 func (s *Server) refineResolvers() {
 	type test struct {
-		addr   string
+		server resolver
 		errCnt int
 		rttAvg time.Duration
 	}
@@ -82,7 +82,7 @@ func (s *Server) refineResolvers() {
 	req := new(dns.Msg)
 
 	for i, resolver := range s.TrustedServers {
-		trusted[i].addr = resolver
+		trusted[i].server = resolver
 		for j := 0; j < _loop; j++ {
 			for _, name := range s.TestDomains {
 				req.SetQuestion(dns.Fqdn(name), dns.TypeA)
@@ -119,7 +119,7 @@ func (s *Server) refineResolvers() {
 	})
 
 	for i, resolver := range s.UntrustedServers {
-		untrusted[i].addr = resolver
+		untrusted[i].server = resolver
 		for j := 0; j < _loop; j++ {
 			for _, name := range s.TestDomains {
 				req.SetQuestion(dns.Fqdn(name), dns.TypeA)
@@ -147,13 +147,13 @@ func (s *Server) refineResolvers() {
 		return untrusted[i].errCnt < untrusted[j].errCnt
 	})
 
-	s.TrustedServers = make([]string, len(trusted))
-	s.UntrustedServers = make([]string, len(untrusted))
+	s.TrustedServers = make([]resolver, len(trusted))
+	s.UntrustedServers = make([]resolver, len(untrusted))
 	for i, t := range trusted {
-		s.TrustedServers[i] = t.addr
+		s.TrustedServers[i] = t.server
 	}
 	for i, t := range untrusted {
-		s.UntrustedServers[i] = t.addr
+		s.UntrustedServers[i] = t.server
 	}
 
 	if tLen == 0 {
