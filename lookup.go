@@ -74,24 +74,36 @@ func (s *Server) Lookup(req *dns.Msg, server resolver) (reply *dns.Msg, rtt time
 		"server":   server,
 	})
 
-	if !s.TCPOnly {
-		reply, rtt, err = s.UDPCli.Exchange(req, server.getAddr())
-		if err != nil {
-			logger.WithError(err).Error("Fail to send UDP query. Will retry in TCP.")
-		}
-		if reply != nil && reply.Truncated {
-			logger.Error("Truncated msg received. Will retry in TCP. Consider enlarge your UDP max size.")
-		}
-	}
-	if reply == nil || reply.Truncated || err != nil {
-		rtt0 := rtt
-		reply, rtt, err = s.TCPCli.Exchange(req, server.getAddr())
-		rtt += rtt0
-		if err != nil {
-			logger.WithError(err).Error("Fail to send TCP query.")
-		}
-	}
+	var rtt0 time.Duration
 
+	for _, protocol := range server.getProto() {
+		switch protocol {
+		case "udp":
+			logger.Debug("Query upstream udp")
+			reply, rtt0, err = s.UDPCli.Exchange(req, server.getAddr())
+			rtt += rtt0
+			if err != nil {
+				logger.WithError(err).Error("Fail to send UDP query.")
+			} else {
+				return
+			}
+			if reply != nil && reply.Truncated {
+				logger.Error("Truncated msg received. Consider enlarge your UDP max size.")
+			}
+		case "tcp":
+			logger.Debug("Query upstream tcp")
+			reply, rtt0, err = s.TCPCli.Exchange(req, server.getAddr())
+			rtt += rtt0
+			if err != nil {
+				logger.WithError(err).Error("Fail to send TCP query.")
+			} else {
+				return
+			}
+		default:
+			logger.Errorf("No available protocols for resolver %s", server)
+			return
+		}
+	}
 	return
 }
 
@@ -112,26 +124,37 @@ func (s *Server) LookupMutation(req *dns.Msg, server resolver) (reply *dns.Msg, 
 	buffer = mutateQuestion(buffer)
 
 	t := time.Now()
-	if !s.TCPOnly {
-		ddl := t.Add(s.UDPCli.Timeout)
-		udpSize := getUDPSize(req)
-		reply, err = rawLookup(s.UDPCli, req.Id, buffer, server, ddl, udpSize)
-		if err != nil {
-			logger.WithError(err).Error("Fail to send UDP mutation query. Will retry in TCP.")
-		}
-		if reply != nil && reply.Truncated {
-			logger.Error("Truncated msg received. Will retry in TCP. Consider enlarge your UDP max size.")
+	for _, protocol := range server.getProto() {
+		switch protocol {
+		case "udp":
+			logger.Debug("Query upstream udp")
+			ddl := t.Add(s.UDPCli.Timeout)
+			udpSize := getUDPSize(req)
+			reply, err = rawLookup(s.UDPCli, req.Id, buffer, server, ddl, udpSize)
+			if err != nil {
+				logger.WithError(err).Error("Fail to send UDP mutation query. ")
+			} else {
+				rtt = time.Since(t)
+				return
+			}
+			if reply != nil && reply.Truncated {
+				logger.Error("Truncated msg received. Consider enlarge your UDP max size.")
+			}
+		case "tcp":
+			logger.Debug("Query upstream tcp")
+			ddl := time.Now().Add(s.TCPCli.Timeout)
+			reply, err = rawLookup(s.TCPCli, req.Id, buffer, server, ddl, 0)
+			if err != nil {
+				logger.WithError(err).Error("Fail to send TCP mutation query.")
+			} else {
+				rtt = time.Since(t)
+				return
+			}
+		default:
+			logger.Errorf("No available protocols for resolver %s", server)
+			return
 		}
 	}
-
-	if reply == nil || reply.Truncated || err != nil {
-		ddl := time.Now().Add(s.TCPCli.Timeout)
-		reply, err = rawLookup(s.TCPCli, req.Id, buffer, server, ddl, 0)
-		if err != nil {
-			logger.WithError(err).Error("Fail to send TCP mutation query.")
-		}
-	}
-
 	rtt = time.Since(t)
 	return
 }

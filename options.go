@@ -27,6 +27,12 @@ func (r resolver) getProto() []string {
 	return r.proto
 }
 
+// tcpOnly forces the resolver to only use tcp, regardless of the user input.
+// Required for backwards compatibility with v1.
+func (r resolver) tcpOnly() {
+	r.proto = []string{"tcp"}
+}
+
 func (r resolver) String() string {
 	return r.getAddr()
 }
@@ -210,6 +216,9 @@ func WithTrustedResolvers(resolvers ...string) ServerOption {
 			if err != nil {
 				return errors.Wrap(err, "Schema error")
 			}
+			if o.TCPOnly {
+				newResolver.tcpOnly()
+			}
 			o.TrustedServers = uniqueAppendResolver(o.TrustedServers, newResolver)
 		}
 		return nil
@@ -225,6 +234,9 @@ func WithResolvers(resolvers ...string) ServerOption {
 			newResolver, err := schemaToResolver(schema)
 			if err != nil {
 				return errors.Wrap(err, "Schema error")
+			}
+			if o.TCPOnly {
+				newResolver.tcpOnly()
 			}
 
 			host, _, _ := net.SplitHostPort(newResolver.getAddr())
