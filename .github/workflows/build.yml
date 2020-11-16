@@ -36,7 +36,8 @@ jobs:
       env:
         build_os: "windows linux"
         build_arch: "amd64 386 arm arm64 mips mips64 mipsle mips64le"
-      run: gox -ldflags "-s -w -X github.com/cherrot/gochinadns.version=${GITHUB_REF#refs/*/}" -verbose -os="$build_os" -arch="$build_arch" -output="chinadns-{{.OS}}-{{.Arch}}"
+        build_osarch: "darwin/amd64"
+      run: gox -ldflags "-s -w -X github.com/cherrot/gochinadns.version=${GITHUB_REF#refs/*/}" -verbose -os="$build_os" -arch="$build_arch" -osarch="$build_osarch" -output="chinadns-{{.OS}}-{{.Arch}}-${GITHUB_REF#refs/*/}"
 
     - name: Test
       run: go test -v
@@ -50,6 +51,11 @@ jobs:
       with:
         name: binaries-windows
         path: cmd/chinadns/chinadns-windows-*
+
+    - uses: actions/upload-artifact@v2
+      with:
+        name: binaries-darwin
+        path: cmd/chinadns/chinadns-darwin-*
 
   upx-compress:
     needs: [build]
@@ -65,13 +71,18 @@ jobs:
           name: binaries-linux
 
       - run: mkdir mini
-      - run: chmod +x chinadns-linux-${{ matrix.arch }}
+      - run: chmod +x chinadns-*
+
+      # GITHUB_REF isn't callable as an action input, so we do this workaround instead to save it as a context variable
+      - name: Extract branch name
+        id: extract_branch
+        run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/*/})"
 
       - uses: crazy-max/ghaction-upx@v1
         with:
           version: latest
-          file: chinadns-linux-${{ matrix.arch }}
-          args: -o mini/chinadns-linux-${{ matrix.arch }}-mini
+          file: chinadns-linux-${{ matrix.arch }}-${{ steps.extract_branch.outputs.branch }}
+          args: -o mini/chinadns-linux-${{ matrix.arch }}-mini-${{ steps.extract_branch.outputs.branch }}
 
       - uses: actions/upload-artifact@v2
         with:
@@ -95,6 +106,10 @@ jobs:
       - uses: actions/download-artifact@v2
         with:
           name: binaries-windows
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: binaries-darwin
 
       - name: Upload the artifacts
         uses: skx/github-action-publish-binaries@master
