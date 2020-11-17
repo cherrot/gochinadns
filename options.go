@@ -5,49 +5,12 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/yl2chen/cidranger"
 )
-
-// resolver contains info about a single upstream DNS server.
-type resolver struct {
-	addr  string   //address of the resolver in format ip:port
-	proto []string //list of protocols to use with this resolver, in order of execution
-}
-
-func (r resolver) getAddr() string {
-	return r.addr
-}
-
-func (r resolver) getProto() []string {
-	return r.proto
-}
-
-// tcpOnly forces the resolver to only use tcp, regardless of the user input.
-// Required for backwards compatibility with v1.
-func (r resolver) tcpOnly() {
-	r.proto = []string{"tcp"}
-}
-
-func (r resolver) String() string {
-	return r.getAddr()
-}
-
-// resolverArray is just an array of type resolver.
-// It's not really required other than to define String() to print it nicely in the log.
-type resolverArray []resolver
-
-func (r resolverArray) String() string {
-	sb := new(strings.Builder)
-	for _, server := range r {
-		sb.WriteString(fmt.Sprintf("%s%s ", server.getProto(), server.getAddr()))
-	}
-	return sb.String()
-}
 
 // ServerOption provides ChinaDNS server options. Please use WithXXX functions to generate Options.
 type ServerOption func(*serverOptions) error
@@ -212,12 +175,9 @@ func WithDomainPolluted(path string) ServerOption {
 func WithTrustedResolvers(resolvers ...string) ServerOption {
 	return func(o *serverOptions) error {
 		for _, schema := range resolvers {
-			newResolver, err := schemaToResolver(schema)
+			newResolver, err := schemaToResolver(schema, o.TCPOnly)
 			if err != nil {
 				return errors.Wrap(err, "Schema error")
-			}
-			if o.TCPOnly {
-				newResolver.tcpOnly()
 			}
 			o.TrustedServers = uniqueAppendResolver(o.TrustedServers, newResolver)
 		}
@@ -231,15 +191,11 @@ func WithResolvers(resolvers ...string) ServerOption {
 			return errNotReady
 		}
 		for _, schema := range resolvers {
-			newResolver, err := schemaToResolver(schema)
+			newResolver, err := schemaToResolver(schema, o.TCPOnly)
 			if err != nil {
 				return errors.Wrap(err, "Schema error")
 			}
-			if o.TCPOnly {
-				newResolver.tcpOnly()
-			}
-
-			host, _, _ := net.SplitHostPort(newResolver.getAddr())
+			host, _, _ := net.SplitHostPort(newResolver.GetAddr())
 			contain, err := o.ChinaCIDR.Contains(net.ParseIP(host))
 			if err != nil {
 				return errors.Wrap(err, fmt.Sprintf("fail to check whether %s is in China", host))
@@ -265,7 +221,7 @@ func uniqueAppendString(to []string, item string) []string {
 
 func uniqueAppendResolver(to []resolver, item resolver) []resolver {
 	for _, e := range to {
-		if item.getAddr() == e.getAddr() {
+		if item.GetAddr() == e.GetAddr() {
 			return to
 		}
 	}

@@ -13,41 +13,32 @@ func Test_schemaToResolver(t *testing.T) {
 		wantErr bool
 	}{
 		{"8.8.8.8:53", resolver{
-			addr:  "8.8.8.8:53",
-			proto: []string{"udp", "tcp"},
+			addr:      "8.8.8.8:53",
+			protocols: []string{"udp", "tcp"},
 		}, false},
 		{"udp@8.8.8.8:54", resolver{
-			addr:  "8.8.8.8:54",
-			proto: []string{"udp"},
+			addr:      "8.8.8.8:54",
+			protocols: []string{"udp"},
 		}, false},
 		{"UDP+tcp@8.8.8.8:53", resolver{
-			addr:  "8.8.8.8:53",
-			proto: []string{"udp", "tcp"},
+			addr:      "8.8.8.8:53",
+			protocols: []string{"udp", "tcp"},
 		}, false},
 		{"UDP+udp+tcp@8.8.8.8:53", resolver{
-			addr:  "8.8.8.8:53",
-			proto: []string{"udp", "tcp"},
+			addr:      "8.8.8.8:53",
+			protocols: []string{"udp", "tcp"},
 		}, false},
 		{"tcp+udp@8.8.8.8:53", resolver{
-			addr:  "8.8.8.8:53",
-			proto: []string{"tcp", "udp"},
+			addr:      "8.8.8.8:53",
+			protocols: []string{"tcp", "udp"},
 		}, false},
-		{"@8.8.8.8:53", resolver{
-			addr:  "",
-			proto: []string{},
-		}, true},
-		{"asdf@8.8.8.8:53", resolver{
-			addr:  "",
-			proto: []string{},
-		}, true},
-		{"wut+tcp@8.8.8.8:53", resolver{
-			addr:  "",
-			proto: []string{},
-		}, true},
+		{"@8.8.8.8:53", resolver{}, true},
+		{"asdf@8.8.8.8:53", resolver{}, true},
+		{"wut+tcp@8.8.8.8:53", resolver{}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			gotR, err := schemaToResolver(tt.input)
+			gotR, err := schemaToResolver(tt.input, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("schemaToResolver() error = %v, wantErr %v", err, tt.wantErr)
 				return

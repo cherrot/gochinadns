@@ -31,7 +31,7 @@ func lookupInServers(
 
 	doLookup := func(server resolver) {
 		defer wg.Done()
-		logger := logger.WithField("server", server.getAddr())
+		logger := logger.WithField("server", server.GetAddr())
 
 		reply, rtt, err := lookup(req.Copy(), server)
 		if err != nil {
@@ -76,29 +76,27 @@ func (s *Server) Lookup(req *dns.Msg, server resolver) (reply *dns.Msg, rtt time
 
 	var rtt0 time.Duration
 
-	for _, protocol := range server.getProto() {
+	for _, protocol := range server.GetProtocols() {
 		switch protocol {
 		case "udp":
 			logger.Debug("Query upstream udp")
-			reply, rtt0, err = s.UDPCli.Exchange(req, server.getAddr())
+			reply, rtt0, err = s.UDPCli.Exchange(req, server.GetAddr())
 			rtt += rtt0
-			if err != nil {
-				logger.WithError(err).Error("Fail to send UDP query.")
-			} else {
+			if err == nil {
 				return
 			}
+			logger.WithError(err).Error("Fail to send UDP query.")
 			if reply != nil && reply.Truncated {
 				logger.Error("Truncated msg received. Consider enlarge your UDP max size.")
 			}
 		case "tcp":
 			logger.Debug("Query upstream tcp")
-			reply, rtt0, err = s.TCPCli.Exchange(req, server.getAddr())
+			reply, rtt0, err = s.TCPCli.Exchange(req, server.GetAddr())
 			rtt += rtt0
-			if err != nil {
-				logger.WithError(err).Error("Fail to send TCP query.")
-			} else {
+			if err == nil {
 				return
 			}
+			logger.WithError(err).Error("Fail to send TCP query.")
 		default:
 			logger.Errorf("No available protocols for resolver %s", server)
 			return
@@ -124,19 +122,18 @@ func (s *Server) LookupMutation(req *dns.Msg, server resolver) (reply *dns.Msg, 
 	buffer = mutateQuestion(buffer)
 
 	t := time.Now()
-	for _, protocol := range server.getProto() {
+	for _, protocol := range server.GetProtocols() {
 		switch protocol {
 		case "udp":
 			logger.Debug("Query upstream udp")
 			ddl := t.Add(s.UDPCli.Timeout)
 			udpSize := getUDPSize(req)
 			reply, err = rawLookup(s.UDPCli, req.Id, buffer, server, ddl, udpSize)
-			if err != nil {
-				logger.WithError(err).Error("Fail to send UDP mutation query. ")
-			} else {
+			if err == nil {
 				rtt = time.Since(t)
 				return
 			}
+			logger.WithError(err).Error("Fail to send UDP mutation query. ")
 			if reply != nil && reply.Truncated {
 				logger.Error("Truncated msg received. Consider enlarge your UDP max size.")
 			}
@@ -144,12 +141,11 @@ func (s *Server) LookupMutation(req *dns.Msg, server resolver) (reply *dns.Msg, 
 			logger.Debug("Query upstream tcp")
 			ddl := time.Now().Add(s.TCPCli.Timeout)
 			reply, err = rawLookup(s.TCPCli, req.Id, buffer, server, ddl, 0)
-			if err != nil {
-				logger.WithError(err).Error("Fail to send TCP mutation query.")
-			} else {
+			if err == nil {
 				rtt = time.Since(t)
 				return
 			}
+			logger.WithError(err).Error("Fail to send TCP mutation query.")
 		default:
 			logger.Errorf("No available protocols for resolver %s", server)
 			return
@@ -160,7 +156,7 @@ func (s *Server) LookupMutation(req *dns.Msg, server resolver) (reply *dns.Msg, 
 }
 
 func rawLookup(cli *dns.Client, id uint16, req []byte, server resolver, ddl time.Time, udpSize uint16) (*dns.Msg, error) {
-	conn, err := cli.Dial(server.getAddr())
+	conn, err := cli.Dial(server.GetAddr())
 	if err != nil {
 		return nil, err
 	}
