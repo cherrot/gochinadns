@@ -21,8 +21,8 @@ type serverOptions struct {
 	IPBlacklist      cidranger.Ranger
 	DomainBlacklist  *domainTrie
 	DomainPolluted   *domainTrie
-	TrustedServers   []string      //DNS servers which can be trusted
-	UntrustedServers []string      //DNS servers which may return polluted results
+	TrustedServers   resolverArray //DNS servers which can be trusted
+	UntrustedServers resolverArray //DNS servers which may return polluted results
 	Timeout          time.Duration // Timeout for one DNS query
 	UDPMaxSize       int           //Max message size for UDP queries
 	TCPOnly          bool          //Use TCP only
@@ -174,8 +174,12 @@ func WithDomainPolluted(path string) ServerOption {
 
 func WithTrustedResolvers(resolvers ...string) ServerOption {
 	return func(o *serverOptions) error {
-		for _, addr := range resolvers {
-			o.TrustedServers = uniqueAppend(o.TrustedServers, addr)
+		for _, schema := range resolvers {
+			newResolver, err := schemaToResolver(schema, o.TCPOnly)
+			if err != nil {
+				return errors.Wrap(err, "Schema error")
+			}
+			o.TrustedServers = uniqueAppendResolver(o.TrustedServers, newResolver)
 		}
 		return nil
 	}
@@ -186,25 +190,38 @@ func WithResolvers(resolvers ...string) ServerOption {
 		if o.ChinaCIDR == nil {
 			return errNotReady
 		}
-		for _, addr := range resolvers {
-			host, _, _ := net.SplitHostPort(addr)
+		for _, schema := range resolvers {
+			newResolver, err := schemaToResolver(schema, o.TCPOnly)
+			if err != nil {
+				return errors.Wrap(err, "Schema error")
+			}
+			host, _, _ := net.SplitHostPort(newResolver.GetAddr())
 			contain, err := o.ChinaCIDR.Contains(net.ParseIP(host))
 			if err != nil {
 				return errors.Wrap(err, fmt.Sprintf("fail to check whether %s is in China", host))
 			}
 			if contain {
-				o.UntrustedServers = uniqueAppend(o.UntrustedServers, addr)
+				o.UntrustedServers = uniqueAppendResolver(o.UntrustedServers, newResolver)
 			} else {
-				o.TrustedServers = uniqueAppend(o.TrustedServers, addr)
+				o.TrustedServers = uniqueAppendResolver(o.TrustedServers, newResolver)
 			}
 		}
 		return nil
 	}
 }
 
-func uniqueAppend(to []string, item string) []string {
+func uniqueAppendString(to []string, item string) []string {
 	for _, e := range to {
 		if item == e {
+			return to
+		}
+	}
+	return append(to, item)
+}
+
+func uniqueAppendResolver(to []resolver, item resolver) []resolver {
+	for _, e := range to {
+		if item.GetAddr() == e.GetAddr() {
 			return to
 		}
 	}

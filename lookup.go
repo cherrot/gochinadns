@@ -11,11 +11,11 @@ import (
 )
 
 // LookupFunc looks up DNS request to the given server and returns DNS reply, its RTT time and an error.
-type LookupFunc func(request *dns.Msg, server string) (reply *dns.Msg, rtt time.Duration, err error)
+type LookupFunc func(request *dns.Msg, server resolver) (reply *dns.Msg, rtt time.Duration, err error)
 
 func lookupInServers(
 	ctx context.Context, cancel context.CancelFunc, result chan<- *dns.Msg, req *dns.Msg,
-	servers []string, waitInterval time.Duration, lookup LookupFunc,
+	servers []resolver, waitInterval time.Duration, lookup LookupFunc,
 ) {
 	defer cancel()
 	if len(servers) == 0 {
@@ -29,9 +29,9 @@ func lookupInServers(
 	queryNext <- struct{}{}
 	var wg sync.WaitGroup
 
-	doLookup := func(server string) {
+	doLookup := func(server resolver) {
 		defer wg.Done()
-		logger := logger.WithField("server", server)
+		logger := logger.WithField("server", server.GetAddr())
 
 		reply, rtt, err := lookup(req.Copy(), server)
 		if err != nil {
@@ -68,37 +68,47 @@ LOOP:
 // DNS Proxy Implementation Guidelines: https://tools.ietf.org/html/rfc5625
 // DNS query processing: https://tools.ietf.org/html/rfc1034#section-3.7
 // Happy Eyeballs: https://tools.ietf.org/html/rfc6555#section-5.4 and #section-6
-func (s *Server) Lookup(req *dns.Msg, server string) (reply *dns.Msg, rtt time.Duration, err error) {
+func (s *Server) Lookup(req *dns.Msg, server resolver) (reply *dns.Msg, rtt time.Duration, err error) {
 	logger := logrus.WithFields(logrus.Fields{
 		"question": questionString(&req.Question[0]),
 		"server":   server,
 	})
 
-	if !s.TCPOnly {
-		reply, rtt, err = s.UDPCli.Exchange(req, server)
-		if err != nil {
-			logger.WithError(err).Error("Fail to send UDP query. Will retry in TCP.")
-		}
-		if reply != nil && reply.Truncated {
-			logger.Error("Truncated msg received. Will retry in TCP. Consider enlarge your UDP max size.")
-		}
-	}
-	if reply == nil || reply.Truncated || err != nil {
-		rtt0 := rtt
-		reply, rtt, err = s.TCPCli.Exchange(req, server)
-		rtt += rtt0
-		if err != nil {
-			logger.WithError(err).Error("Fail to send TCP query.")
-		}
-	}
+	var rtt0 time.Duration
 
+	for _, protocol := range server.GetProtocols() {
+		switch protocol {
+		case "udp":
+			logger.Debug("Query upstream udp")
+			reply, rtt0, err = s.UDPCli.Exchange(req, server.GetAddr())
+			rtt += rtt0
+			if err == nil {
+				return
+			}
+			logger.WithError(err).Error("Fail to send UDP query.")
+			if reply != nil && reply.Truncated {
+				logger.Error("Truncated msg received. Consider enlarge your UDP max size.")
+			}
+		case "tcp":
+			logger.Debug("Query upstream tcp")
+			reply, rtt0, err = s.TCPCli.Exchange(req, server.GetAddr())
+			rtt += rtt0
+			if err == nil {
+				return
+			}
+			logger.WithError(err).Error("Fail to send TCP query.")
+		default:
+			logger.Errorf("No available protocols for resolver %s", server)
+			return
+		}
+	}
 	return
 }
 
 // LookupMutation does the same as Lookup, with pointer mutation for DNS query.
 // DNS Compression: https://tools.ietf.org/html/rfc1035#section-4.1.4
 // DNS compression pointer mutation: https://gist.github.com/klzgrad/f124065c0616022b65e5#file-sendmsg-c-L30-L63
-func (s *Server) LookupMutation(req *dns.Msg, server string) (reply *dns.Msg, rtt time.Duration, err error) {
+func (s *Server) LookupMutation(req *dns.Msg, server resolver) (reply *dns.Msg, rtt time.Duration, err error) {
 	logger := logrus.WithFields(logrus.Fields{
 		"question": questionString(&req.Question[0]),
 		"server":   server,
@@ -112,32 +122,41 @@ func (s *Server) LookupMutation(req *dns.Msg, server string) (reply *dns.Msg, rt
 	buffer = mutateQuestion(buffer)
 
 	t := time.Now()
-	if !s.TCPOnly {
-		ddl := t.Add(s.UDPCli.Timeout)
-		udpSize := getUDPSize(req)
-		reply, err = rawLookup(s.UDPCli, req.Id, buffer, server, ddl, udpSize)
-		if err != nil {
-			logger.WithError(err).Error("Fail to send UDP mutation query. Will retry in TCP.")
-		}
-		if reply != nil && reply.Truncated {
-			logger.Error("Truncated msg received. Will retry in TCP. Consider enlarge your UDP max size.")
-		}
-	}
-
-	if reply == nil || reply.Truncated || err != nil {
-		ddl := time.Now().Add(s.TCPCli.Timeout)
-		reply, err = rawLookup(s.TCPCli, req.Id, buffer, server, ddl, 0)
-		if err != nil {
+	for _, protocol := range server.GetProtocols() {
+		switch protocol {
+		case "udp":
+			logger.Debug("Query upstream udp")
+			ddl := t.Add(s.UDPCli.Timeout)
+			udpSize := getUDPSize(req)
+			reply, err = rawLookup(s.UDPCli, req.Id, buffer, server, ddl, udpSize)
+			if err == nil {
+				rtt = time.Since(t)
+				return
+			}
+			logger.WithError(err).Error("Fail to send UDP mutation query. ")
+			if reply != nil && reply.Truncated {
+				logger.Error("Truncated msg received. Consider enlarge your UDP max size.")
+			}
+		case "tcp":
+			logger.Debug("Query upstream tcp")
+			ddl := time.Now().Add(s.TCPCli.Timeout)
+			reply, err = rawLookup(s.TCPCli, req.Id, buffer, server, ddl, 0)
+			if err == nil {
+				rtt = time.Since(t)
+				return
+			}
 			logger.WithError(err).Error("Fail to send TCP mutation query.")
+		default:
+			logger.Errorf("No available protocols for resolver %s", server)
+			return
 		}
 	}
-
 	rtt = time.Since(t)
 	return
 }
 
-func rawLookup(cli *dns.Client, id uint16, req []byte, server string, ddl time.Time, udpSize uint16) (*dns.Msg, error) {
-	conn, err := cli.Dial(server)
+func rawLookup(cli *dns.Client, id uint16, req []byte, server resolver, ddl time.Time, udpSize uint16) (*dns.Msg, error) {
+	conn, err := cli.Dial(server.GetAddr())
 	if err != nil {
 		return nil, err
 	}

@@ -36,13 +36,18 @@ var (
 	flagDomainBlacklist = flag.String("domain-blacklist", "", "Path to domain blacklist file.")
 	flagDomainPolluted  = flag.String("domain-polluted", "", "Path to polluted domains list. Queries of these domains will not be sent to DNS in China.")
 
-	flagResolvers        resolverAddrs = []string{"119.29.29.29:53", "114.114.114.114:53"}
+	flagResolvers        resolverAddrs = []string{"udp+tcp@119.29.29.29:53", "udp+tcp@114.114.114.114:53"}
 	flagTrustedResolvers resolverAddrs = []string{}
 )
 
 func init() {
-	flag.Var(&flagResolvers, "s", "Upstream DNS servers. Need China route list to check whether it's a trusted server or not.")
-	flag.Var(&flagTrustedResolvers, "trusted-servers", "Servers which (located in China but) can be trusted.")
+	flag.Var(&flagResolvers, "s", "Comma separated list of upstream DNS servers. Need China route list to check whether it's a trusted server or not.\n"+
+		"Servers can be in format ip:port or protocol[+protocol]@ip:port where protocol is udp or tcp.\n"+
+		"Protocols are used in the order they are defined (left to right).\n"+
+		"If empty, protocol defaults to udp+tcp and port defaults to 53.\n"+
+		"Examples: udp@8.8.8.8,udp+tcp@127.0.0.1:5353,1.1.1.1")
+	flag.Var(&flagTrustedResolvers, "trusted-servers", "Comma separated list of servers which (located in China but) can be trusted. \n"+
+		"Uses the same format as -s.")
 }
 
 type resolverAddrs []string
