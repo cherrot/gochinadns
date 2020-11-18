@@ -24,7 +24,7 @@ var (
 	flagBind            = flag.String("b", "::", "Bind address.")
 	flagPort            = flag.Int("p", 53, "Listening port.")
 	flagUDPMaxBytes     = flag.Int("udp-max-bytes", 4096, "Default DNS max message size on UDP.")
-	flagForceTCP        = flag.Bool("force-tcp", false, "Force DNS queries use TCP only.")
+	flagForceTCP        = flag.Bool("force-tcp", false, "Force DNS queries use TCP only. Only applies to resolvers declared in ip:port format.")
 	flagMutation        = flag.Bool("m", false, "Enable compression pointer mutation in DNS queries.")
 	flagBidirectional   = flag.Bool("d", true, "Drop results of trusted servers which containing IPs in China. (Bidirectional mode.)")
 	flagReusePort       = flag.Bool("reuse-port", true, "Enable SO_REUSEPORT to gain some performance optimization. Need Linux>=3.9")
@@ -43,8 +43,9 @@ var (
 func init() {
 	flag.Var(&flagResolvers, "s", "Comma separated list of upstream DNS servers. Need China route list to check whether it's a trusted server or not.\n"+
 		"Servers can be in format ip:port or protocol[+protocol]@ip:port where protocol is udp or tcp.\n"+
-		"Protocols are used in the order they are defined (left to right).\n"+
-		"If empty, protocol defaults to udp+tcp and port defaults to 53.\n"+
+		"Protocols are dialed in order left to right. Rightmost protocol will only be dialed if the leftmost fails.\n"+
+		"Protocols will override force-tcp flag. "+
+		"If empty, protocol defaults to udp+tcp (tcp if force-tcp is set) and port defaults to 53.\n"+
 		"Examples: udp@8.8.8.8,udp+tcp@127.0.0.1:5353,1.1.1.1")
 	flag.Var(&flagTrustedResolvers, "trusted-servers", "Comma separated list of servers which (located in China but) can be trusted. \n"+
 		"Uses the same format as -s.")

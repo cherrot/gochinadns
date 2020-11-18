@@ -22,7 +22,7 @@ go build
 Run:
 
 ```shell
-./chinadns -p 5553 -c ./china.list -v
+./chinadns -p 5553 -c ./chnroute.txt -v
 ```
 
 Test:
@@ -34,11 +34,11 @@ dig @::1 -p5553 google.com
 ## Advanced usage 
 ### Customize upstream servers
 ```shell
-./chinadns -p 5553 -c ./china.list -s 114.114.114.114,127.0.0.1:5353
+./chinadns -p 5553 -c ./chnroute.txt -s 114.114.114.114,127.0.0.1:5353
 ```
 In this example, `127.0.0.1:5353` is the trusted resolver and can be a local dns forwarder (e.g. `dnscrypt-proxy`).
 
-**Note:** you still need to make sure that your trusted resolver is accessible through a secure channel otherwise your DNS will stilll get poisoned. 
+**Note:** you still need to make sure that your trusted upstream resolver is accessible through a secure channel otherwise your DNS will still get poisoned. 
 
 ### Specify resolver protocol
 The default format for upstream resolvers is `ip:port` for backwards compatibility with ChinaDNS.
@@ -70,7 +70,7 @@ Usage of chinadns:
   -domain-polluted string
         Path to polluted domains list. Queries of these domains will not be sent to DNS in China.
   -force-tcp
-        Force DNS queries use TCP only.
+        Force DNS queries use TCP only. Only applies to resolvers declared in ip:port format.
   -l string
         Path to IP blacklist file.
   -m    Enable compression pointer mutation in DNS queries.
@@ -81,15 +81,15 @@ Usage of chinadns:
   -s value
         Comma separated list of upstream DNS servers. Need China route list to check whether it's a trusted server or not.
         Servers can be in format ip:port or protocol[+protocol]@ip:port where protocol is udp or tcp.
-        Protocols are used in the order they are defined (left to right).
-        If empty, protocol defaults to udp+tcp and port defaults to 53.
+        Protocols are dialed in order left to right. Rightmost protocol will only be dialed if the leftmost fails.
+        Protocols will override force-tcp flag. If empty, protocol defaults to udp+tcp (tcp if force-tcp is set) and port defaults to 53.
         Examples: udp@8.8.8.8,udp+tcp@127.0.0.1:5353,1.1.1.1 (default udp+tcp@119.29.29.29,udp+tcp@114.114.114.114)
   -test-domains string
         Domain names to test DNS connection health. (default "qq.com,163.com")
   -timeout duration
         DNS request timeout (default 1s)
   -trusted-servers value
-        Comma separated list of  servers which (located in China but) can be trusted.
+        Comma separated list of servers which (located in China but) can be trusted.
         Uses the same format as -s.
   -udp-max-bytes int
         Default DNS max message size on UDP. (default 4096)
