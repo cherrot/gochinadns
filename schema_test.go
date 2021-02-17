@@ -14,7 +14,7 @@ func Test_schemaToResolver(t *testing.T) {
 	}{
 		{"8.8.8.8:53", &Resolver{
 			Addr:      "8.8.8.8:53",
-			Protocols: []string{"udp", "tcp"},
+			Protocols: []string{"udp"},
 		}, false},
 		{"udp@8.8.8.8:54", &Resolver{
 			Addr:      "8.8.8.8:54",
@@ -37,19 +37,23 @@ func Test_schemaToResolver(t *testing.T) {
 		{"wut+tcp@8.8.8.8:53", nil, true},
 		{"2a09::", &Resolver{
 			Addr:      "[2a09::]:53",
-			Protocols: []string{"udp", "tcp"},
+			Protocols: []string{"udp"},
 		}, false},
 		{"[2a09::]", &Resolver{
 			Addr:      "[2a09::]:53",
-			Protocols: []string{"udp", "tcp"},
+			Protocols: []string{"udp"},
 		}, false},
 		{"[2a09::]:123", &Resolver{
 			Addr:      "[2a09::]:123",
-			Protocols: []string{"udp", "tcp"},
-		}, false},
-		{"udp@2a09::", &Resolver{
-			Addr:      "[2a09::]:53",
 			Protocols: []string{"udp"},
+		}, false},
+		{"tcp+udp@2a09::", &Resolver{
+			Addr:      "[2a09::]:53",
+			Protocols: []string{"tcp", "udp"},
+		}, false},
+		{"doh@https://doh.serv/query", &Resolver{
+			Addr:      "https://doh.serv/query",
+			Protocols: []string{"doh"},
 		}, false},
 	}
 	for _, tt := range tests {

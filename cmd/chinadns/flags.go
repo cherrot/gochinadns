@@ -18,7 +18,7 @@ var (
 	flagMutation        = flag.Bool("m", false, "Enable compression pointer mutation in DNS queries.")
 	flagBidirectional   = flag.Bool("d", true, "Drop results of trusted servers which containing IPs in China. (Bidirectional mode.)")
 	flagReusePort       = flag.Bool("reuse-port", true, "Enable SO_REUSEPORT to gain some performance optimization. Need Linux>=3.9")
-	flagTimeout         = flag.Duration("timeout", time.Second, "DNS request timeout")
+	flagTimeout         = flag.Duration("timeout", 2*time.Second, "DNS request timeout")
 	flagDelay           = flag.Float64("y", 0.1, "Delay (in seconds) to query another DNS server when no reply received.")
 	flagTestDomains     = flag.String("test-domains", "www.qq.com", "Domain names to test DNS connection health, separated by comma.")
 	flagCHNList         = flag.String("c", "./china.list", "Path to China route list. Both IPv4 and IPv6 are supported. See http://ipverse.net")
@@ -37,7 +37,7 @@ func init() {
 		"Protocols are dialed in order left to right. Rightmost protocol will only be dialed if the leftmost fails.\n"+
 		"Protocols will override force-tcp flag. "+
 		"If empty, protocol defaults to udp+tcp (tcp if force-tcp is set) and port defaults to 53.\n"+
-		"Examples: udp@8.8.8.8,udp+tcp@127.0.0.1:5353,1.1.1.1")
+		"Examples: 8.8.8.8,udp@127.0.0.1:5353,udp+tcp@1.1.1.1, doh@https://cloudflare-dns.com/dns-query")
 	flag.Var(&flagTrustedResolvers, "trusted-servers", "Comma separated list of servers which (located in China but) can be trusted. \n"+
 		"Uses the same format as -s.")
 }

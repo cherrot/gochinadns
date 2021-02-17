@@ -73,7 +73,7 @@ func ParseResolver(schema string, tcpOnly bool) (r *Resolver, err error) {
 		if tcpOnly {
 			protos = []string{"tcp"}
 		} else {
-			protos = []string{"udp", "tcp"}
+			protos = []string{"udp"}
 		}
 	} else { // schema in proto[+proto2]@ip[:port] format
 		addr = fields[1]

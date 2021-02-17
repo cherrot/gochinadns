@@ -51,8 +51,15 @@ func (c *Client) lookupNormal(req *dns.Msg, server *Resolver) (reply *dns.Msg, r
 				return
 			}
 			logger.WithError(err).Error("Fail to send TCP query.")
+		case "doh":
+			logger.Debug("Query upstream doh")
+			reply, rtt, err = c.DoHCli.Exchange(req, server.GetAddr())
+			if err == nil {
+				return
+			}
+			logger.WithError(err).Error("Fail to send DoH query.")
 		default:
-			logger.Errorf("No available protocols for resolver %s", server)
+			logger.Errorf("Protocol %s is unsupported in normal method.", protocol)
 			return
 		}
 	}
@@ -61,7 +68,6 @@ func (c *Client) lookupNormal(req *dns.Msg, server *Resolver) (reply *dns.Msg, r
 
 // lookupMutation does the same as lookupNormal, with pointer mutation for DNS query.
 // DNS Compression: https://tools.ietf.org/html/rfc1035#section-4.1.4
-// DNS compression pointer mutation: https://gist.github.com/klzgrad/f124065c0616022b65e5#file-sendmsg-c-L30-L63
 func (c *Client) lookupMutation(req *dns.Msg, server *Resolver) (reply *dns.Msg, rtt time.Duration, err error) {
 	logger := logrus.WithFields(logrus.Fields{
 		"question": questionString(&req.Question[0]),
@@ -73,7 +79,7 @@ func (c *Client) lookupMutation(req *dns.Msg, server *Resolver) (reply *dns.Msg,
 	if err != nil {
 		return nil, 0, fmt.Errorf("fail to pack request: %v", err.Error())
 	}
-	buffer = mutateQuestion(buffer)
+	buffer = mutateQuestion2(buffer)
 
 	// FIXME: may cause unexpected timeout (especially in `proto1+proto2@addr` case)
 	t := time.Now()
@@ -101,8 +107,15 @@ func (c *Client) lookupMutation(req *dns.Msg, server *Resolver) (reply *dns.Msg,
 				return
 			}
 			logger.WithError(err).Error("Fail to send TCP mutation query.")
+		case "doh":
+			logger.Debug("Query upstream doh")
+			reply, rtt, err = c.DoHCli.Exchange(req, server.GetAddr())
+			if err == nil {
+				return
+			}
+			logger.WithError(err).Error("Fail to send DoH query.")
 		default:
-			logger.Errorf("No available protocols for resolver %s", server)
+			logger.Errorf("Protocol %s is unsupported in mutation method.", protocol)
 			return
 		}
 	}
@@ -167,6 +180,7 @@ func cleanEdns0(req *dns.Msg) {
 	}
 }
 
+// DNS compression pointer mutation: https://gist.github.com/klzgrad/f124065c0616022b65e5#file-sendmsg-c-L30-L63
 //nolint:deadcode,unused
 func mutateQuestion(raw []byte) []byte {
 	length := len(raw)
@@ -192,7 +206,7 @@ func mutateQuestion(raw []byte) []byte {
 	return mutation
 }
 
-// add a "pointer" question. does not work now.
+// black magic, works on limited resolvers (tested on Google and CloudFlare)
 //nolint:deadcode,unused
 func mutateQuestion2(raw []byte) []byte {
 	length := len(raw)
