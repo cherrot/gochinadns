@@ -13,14 +13,13 @@ import (
 // Server represents a DNS Server instance
 type Server struct {
 	*serverOptions
-	UDPCli    *dns.Client
-	TCPCli    *dns.Client
+	*Client
 	UDPServer *dns.Server
 	TCPServer *dns.Server
 }
 
 // NewServer creates a new server instance
-func NewServer(opts ...ServerOption) (s *Server, err error) {
+func NewServer(cli *Client, opts ...ServerOption) (s *Server, err error) {
 	var (
 		retryOpts []ServerOption
 		o         = newServerOptions()
@@ -46,8 +45,7 @@ func NewServer(opts ...ServerOption) (s *Server, err error) {
 	err = nil
 	s = &Server{
 		serverOptions: o,
-		UDPCli:        &dns.Client{Timeout: o.Timeout, Net: "udp"},
-		TCPCli:        &dns.Client{Timeout: o.Timeout, Net: "tcp"},
+		Client:        cli,
 		UDPServer:     &dns.Server{Addr: o.Listen, Net: "udp", ReusePort: o.ReusePort},
 		TCPServer:     &dns.Server{Addr: o.Listen, Net: "tcp", ReusePort: o.ReusePort},
 	}
@@ -71,7 +69,7 @@ const _loop = 2
 
 func (s *Server) refineResolvers() {
 	type test struct {
-		server resolver
+		server Resolver
 		errCnt int
 		rttAvg time.Duration
 	}
@@ -90,11 +88,7 @@ func (s *Server) refineResolvers() {
 					rtt time.Duration
 					err error
 				)
-				if s.Mutation {
-					_, rtt, err = s.LookupMutation(req, resolver)
-				} else {
-					_, rtt, err = s.Lookup(req, resolver)
-				}
+				_, rtt, err = s.Lookup(req, resolver)
 				if err != nil {
 					trusted[i].errCnt++
 					continue
@@ -147,8 +141,8 @@ func (s *Server) refineResolvers() {
 		return untrusted[i].errCnt < untrusted[j].errCnt
 	})
 
-	s.TrustedServers = make([]resolver, len(trusted))
-	s.UntrustedServers = make([]resolver, len(untrusted))
+	s.TrustedServers = make([]Resolver, len(trusted))
+	s.UntrustedServers = make([]Resolver, len(untrusted))
 	for i, t := range trusted {
 		s.TrustedServers[i] = t.server
 	}

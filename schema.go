@@ -2,31 +2,52 @@ package gochinadns
 
 import (
 	"fmt"
-	"github.com/pkg/errors"
+	"net"
 	"strings"
+
+	"github.com/pkg/errors"
 )
 
-// resolver contains info about a single upstream DNS server.
-type resolver struct {
-	addr      string   //address of the resolver in format ip:port
-	protocols []string //list of protocols to use with this resolver, in order of execution
+var (
+	supportedProtocols   = []string{"udp", "tcp", "doh"}
+	supportedProtocolMap = make(map[string]bool)
+)
+
+func init() {
+	for _, proto := range supportedProtocols {
+		supportedProtocolMap[proto] = true
+	}
 }
 
-func (r resolver) GetAddr() string {
-	return r.addr
+func SupportedProtocols() []string {
+	return supportedProtocols
 }
 
-func (r resolver) GetProtocols() []string {
-	return r.protocols
+// Resolver contains info about a single upstream DNS server.
+type Resolver struct {
+	Addr      string   //address of the resolver in format ip:port
+	Protocols []string //list of protocols to use with this resolver, in order of execution
 }
 
-func (r resolver) String() string {
-	return r.GetAddr()
+func (r Resolver) GetAddr() string {
+	return r.Addr
+}
+
+func (r Resolver) GetProtocols() []string {
+	return r.Protocols
+}
+
+func (r Resolver) String() string {
+	sb := new(strings.Builder)
+	sb.WriteString(strings.Join(r.Protocols, "+"))
+	sb.WriteByte('@')
+	sb.WriteString(r.Addr)
+	return sb.String()
 }
 
 // resolverArray is just an array of type resolver.
 // It's not really required other than to define String() to print it nicely in the log.
-type resolverArray []resolver
+type resolverArray []Resolver
 
 func (r resolverArray) String() string {
 	sb := new(strings.Builder)
@@ -36,50 +57,70 @@ func (r resolverArray) String() string {
 	return sb.String()
 }
 
-// schemaToResolver takes a single resolver in schema format and outputs a resolver struct.
-// Will also accept regular ip:port format for backwards compatibility.
-// The schema is defined as:  protocol[+protocol]@ip:port
-func schemaToResolver(input string, tcpOnly bool) (r resolver, err error) {
+// ParseResolver takes a single resolver in schema string format and outputs a resolver struct.
+// It also accept regular ip[:port] format for backwards compatibility.
+// The schema is defined as:  [protocol[+protocol]@]ip[:port]
+func ParseResolver(schema string, tcpOnly bool) (r Resolver, err error) {
 	err = nil
-	fields := strings.Split(input, "@")
-	if len(fields) == 1 { // input is ip:port
-		var proto []string
+	var (
+		addr   string
+		protos []string
+	)
+	fields := strings.Split(schema, "@")
+	if len(fields) == 1 { // schema in ip[:port] format
+		addr = fields[0]
 		if tcpOnly {
-			proto = []string{"tcp"}
+			protos = []string{"tcp"}
 		} else {
-			proto = []string{"udp", "tcp"}
+			protos = []string{"udp", "tcp"}
 		}
-		r = resolver{
-			addr:      fields[0],
-			protocols: proto,
-		}
-		return
-	} else { //input is schema
+	} else { // schema in proto[+proto2]@ip[:port] format
+		addr = fields[1]
 		//extract protocols
-		pr := strings.Split(strings.ToLower(fields[0]), "+")
-		var proto []string
+		ps := strings.Split(strings.ToLower(fields[0]), "+")
 		// check if the protocols are valid
-		for _, protocol := range pr {
-			er := checkProtocol(protocol)
-			if er != nil {
-				err = errors.Wrapf(er, "Error in resolver [%s]", input)
+		for _, protocol := range ps {
+			err = checkProtocol(protocol)
+			if err != nil {
 				return
 			}
-			proto = uniqueAppendString(proto, protocol)
+			protos = uniqueAppendString(protos, protocol)
 		}
-		r = resolver{
-			addr:      fields[1],
-			protocols: proto,
-		}
-		return
 	}
+
+	// Process host port
+	if len(addr) > 0 && addr[0] == '[' {
+		if _, _, err = net.SplitHostPort(addr); err != nil {
+			if strings.Contains(err.Error(), "missing port in address") {
+				addr = addr + ":53"
+				err = nil
+				if _, _, err = net.SplitHostPort(addr); err != nil {
+					return
+				}
+			} else {
+				return
+			}
+		}
+	} else if _, _, err = net.SplitHostPort(addr); err != nil {
+		if strings.Contains(err.Error(), "missing port in address") ||
+			strings.Contains(err.Error(), "too many colons in address") {
+			addr, err = net.JoinHostPort(addr, "53"), nil
+		} else {
+			return
+		}
+	}
+
+	r = Resolver{
+		Addr:      addr,
+		Protocols: protos,
+	}
+	return
 }
 
 // checkProtocol checks if a valid protocol is specified.
-func checkProtocol(p string) error {
-	if p == "udp" || p == "tcp" {
+func checkProtocol(proto string) error {
+	if _, ok := supportedProtocolMap[proto]; ok {
 		return nil
-	} else {
-		return errors.Errorf("Unknown protocol [%s]", p)
 	}
+	return errors.Errorf("Unknown protocol [%s]", proto)
 }

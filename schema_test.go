@@ -9,36 +9,52 @@ func Test_schemaToResolver(t *testing.T) {
 
 	tests := []struct {
 		input   string
-		wantR   resolver
+		wantR   Resolver
 		wantErr bool
 	}{
-		{"8.8.8.8:53", resolver{
-			addr:      "8.8.8.8:53",
-			protocols: []string{"udp", "tcp"},
+		{"8.8.8.8:53", Resolver{
+			Addr:      "8.8.8.8:53",
+			Protocols: []string{"udp", "tcp"},
 		}, false},
-		{"udp@8.8.8.8:54", resolver{
-			addr:      "8.8.8.8:54",
-			protocols: []string{"udp"},
+		{"udp@8.8.8.8:54", Resolver{
+			Addr:      "8.8.8.8:54",
+			Protocols: []string{"udp"},
 		}, false},
-		{"UDP+tcp@8.8.8.8:53", resolver{
-			addr:      "8.8.8.8:53",
-			protocols: []string{"udp", "tcp"},
+		{"UDP+tcp@8.8.8.8:53", Resolver{
+			Addr:      "8.8.8.8:53",
+			Protocols: []string{"udp", "tcp"},
 		}, false},
-		{"UDP+udp+tcp@8.8.8.8:53", resolver{
-			addr:      "8.8.8.8:53",
-			protocols: []string{"udp", "tcp"},
+		{"UDP+udp+tcp@8.8.8.8:53", Resolver{
+			Addr:      "8.8.8.8:53",
+			Protocols: []string{"udp", "tcp"},
 		}, false},
-		{"tcp+udp@8.8.8.8:53", resolver{
-			addr:      "8.8.8.8:53",
-			protocols: []string{"tcp", "udp"},
+		{"tcp+udp@8.8.8.8:53", Resolver{
+			Addr:      "8.8.8.8:53",
+			Protocols: []string{"tcp", "udp"},
 		}, false},
-		{"@8.8.8.8:53", resolver{}, true},
-		{"asdf@8.8.8.8:53", resolver{}, true},
-		{"wut+tcp@8.8.8.8:53", resolver{}, true},
+		{"@8.8.8.8:53", Resolver{}, true},
+		{"asdf@8.8.8.8:53", Resolver{}, true},
+		{"wut+tcp@8.8.8.8:53", Resolver{}, true},
+		{"2a09::", Resolver{
+			Addr:      "[2a09::]:53",
+			Protocols: []string{"udp", "tcp"},
+		}, false},
+		{"[2a09::]", Resolver{
+			Addr:      "[2a09::]:53",
+			Protocols: []string{"udp", "tcp"},
+		}, false},
+		{"[2a09::]:123", Resolver{
+			Addr:      "[2a09::]:123",
+			Protocols: []string{"udp", "tcp"},
+		}, false},
+		{"udp@2a09::", Resolver{
+			Addr:      "[2a09::]:53",
+			Protocols: []string{"udp"},
+		}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			gotR, err := schemaToResolver(tt.input, false)
+			gotR, err := ParseResolver(tt.input, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("schemaToResolver() error = %v, wantErr %v", err, tt.wantErr)
 				return

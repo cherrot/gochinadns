@@ -6,56 +6,87 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/cherrot/gochinadns"
 	"github.com/miekg/dns"
+	"github.com/sirupsen/logrus"
 )
 
+var (
+	flagUDPMaxBytes = flag.Int("udp-max-bytes", 4096, "Default DNS max message size on UDP.")
+	flagMutation    = flag.Bool("m", false, "Enable compression pointer mutation in DNS queries.")
+	flagTimeout     = flag.Duration("timeout", 2*time.Second, "DNS request timeout")
+	flagVerbose     = flag.Bool("v", false, "Enable verbose logging.")
+)
+
+func usage() {
+	fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options] [proto[+proto]]@server www.domain.com\n", os.Args[0])
+	// TODO: supported schemas
+	fmt.Fprintln(flag.CommandLine.Output(), "Where proto being one of: udp, tcp.")
+	fmt.Fprintln(flag.CommandLine.Output(), "\nOptions:")
+	flag.PrintDefaults()
+}
+
 func main() {
+	flag.Usage = usage
 	flag.Parse()
+
+	if *flagVerbose {
+		logrus.SetLevel(logrus.DebugLevel)
+	}
 	args := flag.Args()
 	question, resolver := parseArgs(args)
 
-	c := new(dns.Client)
+	copts := []gochinadns.ClientOption{
+		gochinadns.WithUDPMaxBytes(*flagUDPMaxBytes),
+		gochinadns.WithMutation(*flagMutation),
+		gochinadns.WithTimeout(*flagTimeout),
+	}
+
+	client := gochinadns.NewClient(copts...)
+
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(question), dns.TypeA)
 	m.RecursionDesired = true
 
-	r, _, err := c.Exchange(m, resolver)
+	r, rtt, err := client.Lookup(m, resolver)
 
 	if r == nil {
-		log.Fatalf("*** error: %s\n", err.Error())
+		logrus.Fatalln(err)
 	}
 
-	if r.Rcode != dns.RcodeSuccess {
-		log.Fatalf(" *** invalid answer name %s after MX query for %s\n", os.Args[1], os.Args[1])
-	}
-
-	// Stuff must be in the answer section
-	for _, a := range r.Answer {
-		fmt.Printf("%v\n", a)
-	}
+	fmt.Println(r)
+	fmt.Println(";; Query time:", rtt)
+	fmt.Println(";; SERVER:", resolver.Addr)
 }
 
-func parseArgs(args []string) (question, resolver string) {
-	for _, e := range args {
-		if len(e) > 1 && e[0] == '@' {
-			resolver := e[1:]
-			if _, _, err := net.SplitHostPort(resolver); err != nil {
-				if strings.Contains(err.Error(), "missing port") {
-					resolver = net.JoinHostPort(resolver, "53")
-				}
+func parseArgs(args []string) (question string, resolver gochinadns.Resolver) {
+	for _, arg := range args {
+		if strings.Contains(arg, "@") {
+			if arg[0] == '@' {
+				arg = arg[1:]
+			}
+			var err error
+			if resolver, err = gochinadns.ParseResolver(arg, false); err != nil {
+				logrus.Fatalln(err)
 			}
 		} else {
-			question = e
+			question = arg
 		}
 	}
-	if resolver == "" {
-		config, _ := dns.ClientConfigFromFile("/etc/resolv.conf")
-		resolver = net.JoinHostPort(config.Servers[0], config.Port)
+	if resolver.Addr == "" {
+		config, err := dns.ClientConfigFromFile("/etc/resolv.conf")
+		if err != nil {
+			logrus.Fatalln(err)
+		}
+		resolver = gochinadns.Resolver{
+			Addr:      net.JoinHostPort(config.Servers[0], config.Port),
+			Protocols: []string{"udp", "tcp"},
+		}
 	}
 	return
 }
