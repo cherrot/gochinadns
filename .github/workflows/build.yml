@@ -15,7 +15,7 @@ jobs:
     - name: Set up Go 1.x
       uses: actions/setup-go@v2
       with:
-        go-version: ^1.13
+        go-version: ^1.16
 
     - name: Set up gox
       run: go get github.com/mitchellh/gox
@@ -24,12 +24,10 @@ jobs:
       uses: actions/checkout@v2
 
     - name: Get dependencies
-      run: |
-        go get -v -t -d ./...
-        if [ -f Gopkg.toml ]; then
-            curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
-            dep ensure
-        fi
+      run: go mod download
+
+    - name: Test
+      run: go test -v ./...
 
     - name: Build
       working-directory: cmd/chinadns
@@ -38,9 +36,6 @@ jobs:
         build_arch: "amd64 386 arm arm64 mips mips64 mipsle mips64le"
         build_osarch: "darwin/amd64"
       run: gox -ldflags "-s -w -X github.com/cherrot/gochinadns.version=${GITHUB_REF#refs/*/}" -verbose -os="$build_os" -arch="$build_arch" -osarch="$build_osarch" -output="chinadns-{{.OS}}-{{.Arch}}-${GITHUB_REF#refs/*/}"
-
-    - name: Test
-      run: go test -v
 
     - uses: actions/upload-artifact@v2
       with:
@@ -117,7 +112,3 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: 'chinadns-*'
-
-        
-
-

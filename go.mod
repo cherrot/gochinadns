@@ -1,6 +1,6 @@
 module github.com/cherrot/gochinadns
 
-go 1.15
+go 1.16
 
 require (
 	github.com/miekg/dns v1.1.35
