@@ -1,8 +1,6 @@
 package gochinadns
 
 import (
-	"context"
-	"sync"
 	"time"
 
 	"github.com/miekg/dns"
@@ -11,64 +9,20 @@ import (
 )
 
 // LookupFunc looks up DNS request to the given server and returns DNS reply, its RTT time and an error.
-type LookupFunc func(request *dns.Msg, server resolver) (reply *dns.Msg, rtt time.Duration, err error)
+type LookupFunc func(request *dns.Msg, server Resolver) (reply *dns.Msg, rtt time.Duration, err error)
 
-func lookupInServers(
-	ctx context.Context, cancel context.CancelFunc, result chan<- *dns.Msg, req *dns.Msg,
-	servers []resolver, waitInterval time.Duration, lookup LookupFunc,
-) {
-	defer cancel()
-	if len(servers) == 0 {
-		return
+func (c *Client) Lookup(req *dns.Msg, server Resolver) (reply *dns.Msg, rtt time.Duration, err error) {
+	if c.Mutation {
+		return c.lookupMutation(req, server)
 	}
-	logger := logrus.WithField("question", questionString(&req.Question[0]))
-
-	ticker := time.NewTicker(waitInterval)
-	defer ticker.Stop()
-	queryNext := make(chan struct{}, len(servers))
-	queryNext <- struct{}{}
-	var wg sync.WaitGroup
-
-	doLookup := func(server resolver) {
-		defer wg.Done()
-		logger := logger.WithField("server", server.GetAddr())
-
-		reply, rtt, err := lookup(req.Copy(), server)
-		if err != nil {
-			queryNext <- struct{}{}
-			return
-		}
-
-		select {
-		case result <- reply:
-			logger.Debug("Query RTT: ", rtt)
-		default:
-		}
-		cancel()
-	}
-
-LOOP:
-	for _, server := range servers {
-		select {
-		case <-ctx.Done():
-			break LOOP
-		case <-queryNext:
-			wg.Add(1)
-			go doLookup(server)
-		case <-ticker.C:
-			wg.Add(1)
-			go doLookup(server)
-		}
-	}
-
-	wg.Wait()
+	return c.lookupNormal(req, server)
 }
 
-// Lookup send a DNS request to the specific server and get its corresponding reply.
+// lookupNormal send a DNS request to the specific server and get its corresponding reply.
 // DNS Proxy Implementation Guidelines: https://tools.ietf.org/html/rfc5625
 // DNS query processing: https://tools.ietf.org/html/rfc1034#section-3.7
 // Happy Eyeballs: https://tools.ietf.org/html/rfc6555#section-5.4 and #section-6
-func (s *Server) Lookup(req *dns.Msg, server resolver) (reply *dns.Msg, rtt time.Duration, err error) {
+func (c *Client) lookupNormal(req *dns.Msg, server Resolver) (reply *dns.Msg, rtt time.Duration, err error) {
 	logger := logrus.WithFields(logrus.Fields{
 		"question": questionString(&req.Question[0]),
 		"server":   server,
@@ -80,7 +34,7 @@ func (s *Server) Lookup(req *dns.Msg, server resolver) (reply *dns.Msg, rtt time
 		switch protocol {
 		case "udp":
 			logger.Debug("Query upstream udp")
-			reply, rtt0, err = s.UDPCli.Exchange(req, server.GetAddr())
+			reply, rtt0, err = c.UDPCli.Exchange(req, server.GetAddr())
 			rtt += rtt0
 			if err == nil {
 				return
@@ -91,7 +45,7 @@ func (s *Server) Lookup(req *dns.Msg, server resolver) (reply *dns.Msg, rtt time
 			}
 		case "tcp":
 			logger.Debug("Query upstream tcp")
-			reply, rtt0, err = s.TCPCli.Exchange(req, server.GetAddr())
+			reply, rtt0, err = c.TCPCli.Exchange(req, server.GetAddr())
 			rtt += rtt0
 			if err == nil {
 				return
@@ -105,10 +59,10 @@ func (s *Server) Lookup(req *dns.Msg, server resolver) (reply *dns.Msg, rtt time
 	return
 }
 
-// LookupMutation does the same as Lookup, with pointer mutation for DNS query.
+// lookupMutation does the same as lookupNormal, with pointer mutation for DNS query.
 // DNS Compression: https://tools.ietf.org/html/rfc1035#section-4.1.4
 // DNS compression pointer mutation: https://gist.github.com/klzgrad/f124065c0616022b65e5#file-sendmsg-c-L30-L63
-func (s *Server) LookupMutation(req *dns.Msg, server resolver) (reply *dns.Msg, rtt time.Duration, err error) {
+func (c *Client) lookupMutation(req *dns.Msg, server Resolver) (reply *dns.Msg, rtt time.Duration, err error) {
 	logger := logrus.WithFields(logrus.Fields{
 		"question": questionString(&req.Question[0]),
 		"server":   server,
@@ -121,14 +75,15 @@ func (s *Server) LookupMutation(req *dns.Msg, server resolver) (reply *dns.Msg, 
 	}
 	buffer = mutateQuestion(buffer)
 
+	// FIXME: may cause unexpected timeout (especially in `proto1+proto2@addr` case)
 	t := time.Now()
 	for _, protocol := range server.GetProtocols() {
 		switch protocol {
 		case "udp":
 			logger.Debug("Query upstream udp")
-			ddl := t.Add(s.UDPCli.Timeout)
+			ddl := t.Add(c.UDPCli.Timeout)
 			udpSize := getUDPSize(req)
-			reply, err = rawLookup(s.UDPCli, req.Id, buffer, server, ddl, udpSize)
+			reply, err = rawLookup(c.UDPCli, req.Id, buffer, server, ddl, udpSize)
 			if err == nil {
 				rtt = time.Since(t)
 				return
@@ -139,8 +94,8 @@ func (s *Server) LookupMutation(req *dns.Msg, server resolver) (reply *dns.Msg, 
 			}
 		case "tcp":
 			logger.Debug("Query upstream tcp")
-			ddl := time.Now().Add(s.TCPCli.Timeout)
-			reply, err = rawLookup(s.TCPCli, req.Id, buffer, server, ddl, 0)
+			ddl := time.Now().Add(c.TCPCli.Timeout)
+			reply, err = rawLookup(c.TCPCli, req.Id, buffer, server, ddl, 0)
 			if err == nil {
 				rtt = time.Since(t)
 				return
@@ -155,7 +110,7 @@ func (s *Server) LookupMutation(req *dns.Msg, server resolver) (reply *dns.Msg, 
 	return
 }
 
-func rawLookup(cli *dns.Client, id uint16, req []byte, server resolver, ddl time.Time, udpSize uint16) (*dns.Msg, error) {
+func rawLookup(cli *dns.Client, id uint16, req []byte, server Resolver, ddl time.Time, udpSize uint16) (*dns.Msg, error) {
 	conn, err := cli.Dial(server.GetAddr())
 	if err != nil {
 		return nil, err
@@ -163,12 +118,12 @@ func rawLookup(cli *dns.Client, id uint16, req []byte, server resolver, ddl time
 	defer conn.Close()
 	conn.UDPSize = udpSize
 
-	conn.SetWriteDeadline(ddl)
+	_ = conn.SetWriteDeadline(ddl)
 	if _, err := conn.Write(req); err != nil {
 		return nil, err
 	}
 
-	conn.SetReadDeadline(ddl)
+	_ = conn.SetReadDeadline(ddl)
 	reply, err := conn.ReadMsg()
 	if err != nil {
 		return nil, err
@@ -202,6 +157,7 @@ func getUDPSize(req *dns.Msg) uint16 {
 	return dns.MinMsgSize
 }
 
+//nolint:deadcode,unused
 func cleanEdns0(req *dns.Msg) {
 	for {
 		if req.IsEdns0() == nil {
@@ -211,39 +167,58 @@ func cleanEdns0(req *dns.Msg) {
 	}
 }
 
-func mutateQuestion(bytes []byte) []byte {
-	// 16 is the minimum length of a valid DNS query
-	length := len(bytes)
+//nolint:deadcode,unused
+func mutateQuestion(raw []byte) []byte {
+	length := len(raw)
 	if length <= 16 {
-		return bytes
+		return raw
+	}
+
+	offset := 12
+	for offset < length-4 {
+		if raw[offset]&0xC0 != 0 {
+			return raw
+		}
+		if raw[offset] == 0 {
+			break
+		}
+		offset += int(raw[offset]) + 1
+	}
+
+	mutation := make([]byte, length+1)
+	copy(mutation, raw[:offset])
+	mutation[offset], mutation[offset+1] = 0xC0, 0x07
+	copy(mutation[offset+2:], raw[offset+1:])
+	return mutation
+}
+
+// add a "pointer" question. does not work now.
+//nolint:deadcode,unused
+func mutateQuestion2(raw []byte) []byte {
+	length := len(raw)
+	if length <= 16 {
+		return raw
 	}
 
 	var (
-		buffer = bytes
-		found  = false
 		offset = 12
+		virus  = make([]byte, 6)
 	)
 	for offset < length-4 {
-		if bytes[offset]&0xC0 != 0 {
+		if raw[offset] == 0 {
+			virus[0], virus[1] = 0xC0, 0x12
+			copy(virus[2:], raw[offset+1:])
 			break
 		}
-		// end of the QName
-		if bytes[offset] == 0 {
-			found = true
-			offset++
-			break
-		}
-		// skip by label length
-		offset += int(bytes[offset]) + 1
+		offset += int(raw[offset]) + 1
 	}
 
-	if found {
-		buffer = make([]byte, length+1)
-		copy(buffer, bytes[:offset-1])
-		buffer[offset-1], buffer[offset] = 0xC0, 0x06
-		copy(buffer[offset+1:], bytes[offset:])
-	}
-	return buffer
+	mutation := make([]byte, length+6)
+	copy(mutation, raw[:12])
+	mutation[5]++
+	copy(mutation[12:], virus)
+	copy(mutation[18:], raw[12:])
+	return mutation
 }
 
 func questionString(q *dns.Question) string {

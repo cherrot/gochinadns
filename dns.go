@@ -3,11 +3,64 @@ package gochinadns
 import (
 	"context"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
+
+func lookupInServers(
+	ctx context.Context, cancel context.CancelFunc, result chan<- *dns.Msg, req *dns.Msg,
+	servers []Resolver, waitInterval time.Duration, lookup LookupFunc,
+) {
+	defer cancel()
+	if len(servers) == 0 {
+		return
+	}
+	logger := logrus.WithField("question", questionString(&req.Question[0]))
+
+	// TODO: replace ticker by ratelimit
+	ticker := time.NewTicker(waitInterval)
+	defer ticker.Stop()
+	queryNext := make(chan struct{}, len(servers))
+	queryNext <- struct{}{}
+	var wg sync.WaitGroup
+
+	doLookup := func(server Resolver) {
+		defer wg.Done()
+		logger := logger.WithField("server", server.GetAddr())
+
+		reply, rtt, err := lookup(req.Copy(), server)
+		if err != nil {
+			queryNext <- struct{}{}
+			return
+		}
+
+		select {
+		case result <- reply:
+			logger.Debug("Query RTT: ", rtt)
+		default:
+		}
+		cancel()
+	}
+
+LOOP:
+	for _, server := range servers {
+		select {
+		case <-ctx.Done():
+			break LOOP
+		case <-queryNext:
+			wg.Add(1)
+			go doLookup(server)
+		case <-ticker.C:
+			wg.Add(1)
+			go doLookup(server)
+		}
+	}
+
+	wg.Wait()
+}
 
 // Serve serves DNS request.
 func (s *Server) Serve(w dns.ResponseWriter, req *dns.Msg) {
@@ -22,7 +75,7 @@ func (s *Server) Serve(w dns.ResponseWriter, req *dns.Msg) {
 	if s.DomainBlacklist.Contain(qName) {
 		reply = new(dns.Msg)
 		reply.SetReply(req)
-		w.WriteMsg(reply)
+		_ = w.WriteMsg(reply)
 		return
 	}
 
@@ -39,13 +92,9 @@ func (s *Server) Serve(w dns.ResponseWriter, req *dns.Msg) {
 
 	trusted := make(chan *dns.Msg, 1)
 	untrusted := make(chan *dns.Msg, 1)
-	if s.Mutation {
-		go lookupInServers(tctx, tcancel, trusted, req, s.TrustedServers, s.Delay, s.LookupMutation)
-	} else {
-		go lookupInServers(tctx, tcancel, trusted, req, s.TrustedServers, s.Delay, s.Lookup)
-	}
+	go lookupInServers(tctx, tcancel, trusted, req, s.TrustedServers, s.Delay, s.Lookup)
 	if !s.DomainPolluted.Contain(qName) {
-		go lookupInServers(uctx, ucancel, untrusted, req, s.UntrustedServers, s.Delay, s.Lookup)
+		go lookupInServers(uctx, ucancel, untrusted, req, s.UntrustedServers, s.Delay, s.lookupNormal)
 	} else {
 		ucancel()
 	}
@@ -68,7 +117,7 @@ func (s *Server) Serve(w dns.ResponseWriter, req *dns.Msg) {
 		reply.SetReply(req)
 	}
 
-	w.WriteMsg(reply)
+	_ = w.WriteMsg(reply)
 	logger.Debug("SERVING RTT: ", time.Since(start))
 }
 

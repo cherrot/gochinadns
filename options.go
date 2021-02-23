@@ -23,10 +23,6 @@ type serverOptions struct {
 	DomainPolluted   *domainTrie
 	TrustedServers   resolverArray //DNS servers which can be trusted
 	UntrustedServers resolverArray //DNS servers which may return polluted results
-	Timeout          time.Duration // Timeout for one DNS query
-	UDPMaxSize       int           //Max message size for UDP queries
-	TCPOnly          bool          //Use TCP only
-	Mutation         bool          //Enable DNS pointer mutation for trusted servers
 	Bidirectional    bool          //Drop results of trusted servers which containing IPs in China
 	ReusePort        bool          //Enable SO_REUSEPORT
 	Delay            time.Duration //Delay (in seconds) to query another DNS server when no reply received
@@ -36,7 +32,6 @@ type serverOptions struct {
 func newServerOptions() *serverOptions {
 	return &serverOptions{
 		Listen:      "[::]:53",
-		Timeout:     time.Second,
 		TestDomains: []string{"qq.com"},
 		IPBlacklist: cidranger.NewPCTrieRanger(),
 	}
@@ -79,7 +74,10 @@ func WithCHNList(path string) ServerOption {
 			if err != nil {
 				return errors.Wrap(err, fmt.Sprintf("parse %s as CIDR failed", scanner.Text()))
 			}
-			o.ChinaCIDR.Insert(cidranger.NewBasicRangerEntry(*network))
+			err = o.ChinaCIDR.Insert(cidranger.NewBasicRangerEntry(*network))
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprintf("insert %s as CIDR failed", scanner.Text()))
+			}
 		}
 		if err := scanner.Err(); err != nil {
 			return errors.Wrap(err, "fail to scan china route list")
@@ -113,7 +111,10 @@ func WithIPBlacklist(path string) ServerOption {
 				l := 8 * len(ip)
 				network = &net.IPNet{IP: ip, Mask: net.CIDRMask(l, l)}
 			}
-			o.IPBlacklist.Insert(cidranger.NewBasicRangerEntry(*network))
+			err = o.IPBlacklist.Insert(cidranger.NewBasicRangerEntry(*network))
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprintf("insert %s as CIDR failed", scanner.Text()))
+			}
 		}
 		if err := scanner.Err(); err != nil {
 			return errors.Wrap(err, "fail to scan IP blacklist")
@@ -172,10 +173,10 @@ func WithDomainPolluted(path string) ServerOption {
 	}
 }
 
-func WithTrustedResolvers(resolvers ...string) ServerOption {
+func WithTrustedResolvers(tcpOnly bool, resolvers ...string) ServerOption {
 	return func(o *serverOptions) error {
 		for _, schema := range resolvers {
-			newResolver, err := schemaToResolver(schema, o.TCPOnly)
+			newResolver, err := ParseResolver(schema, tcpOnly)
 			if err != nil {
 				return errors.Wrap(err, "Schema error")
 			}
@@ -185,13 +186,13 @@ func WithTrustedResolvers(resolvers ...string) ServerOption {
 	}
 }
 
-func WithResolvers(resolvers ...string) ServerOption {
+func WithResolvers(tcpOnly bool, resolvers ...string) ServerOption {
 	return func(o *serverOptions) error {
 		if o.ChinaCIDR == nil {
 			return errNotReady
 		}
 		for _, schema := range resolvers {
-			newResolver, err := schemaToResolver(schema, o.TCPOnly)
+			newResolver, err := ParseResolver(schema, tcpOnly)
 			if err != nil {
 				return errors.Wrap(err, "Schema error")
 			}
@@ -219,41 +220,13 @@ func uniqueAppendString(to []string, item string) []string {
 	return append(to, item)
 }
 
-func uniqueAppendResolver(to []resolver, item resolver) []resolver {
+func uniqueAppendResolver(to []Resolver, item Resolver) []Resolver {
 	for _, e := range to {
 		if item.GetAddr() == e.GetAddr() {
 			return to
 		}
 	}
 	return append(to, item)
-}
-
-func WithTimeout(t time.Duration) ServerOption {
-	return func(o *serverOptions) error {
-		o.Timeout = t
-		return nil
-	}
-}
-
-func WithUDPMaxBytes(max int) ServerOption {
-	return func(o *serverOptions) error {
-		o.UDPMaxSize = max
-		return nil
-	}
-}
-
-func WithTCPOnly(b bool) ServerOption {
-	return func(o *serverOptions) error {
-		o.TCPOnly = b
-		return nil
-	}
-}
-
-func WithMutation(b bool) ServerOption {
-	return func(o *serverOptions) error {
-		o.Mutation = b
-		return nil
-	}
 }
 
 func WithBidirectional(b bool) ServerOption {
