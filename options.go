@@ -74,7 +74,10 @@ func WithCHNList(path string) ServerOption {
 			if err != nil {
 				return errors.Wrap(err, fmt.Sprintf("parse %s as CIDR failed", scanner.Text()))
 			}
-			o.ChinaCIDR.Insert(cidranger.NewBasicRangerEntry(*network))
+			err = o.ChinaCIDR.Insert(cidranger.NewBasicRangerEntry(*network))
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprintf("insert %s as CIDR failed", scanner.Text()))
+			}
 		}
 		if err := scanner.Err(); err != nil {
 			return errors.Wrap(err, "fail to scan china route list")
@@ -108,7 +111,10 @@ func WithIPBlacklist(path string) ServerOption {
 				l := 8 * len(ip)
 				network = &net.IPNet{IP: ip, Mask: net.CIDRMask(l, l)}
 			}
-			o.IPBlacklist.Insert(cidranger.NewBasicRangerEntry(*network))
+			err = o.IPBlacklist.Insert(cidranger.NewBasicRangerEntry(*network))
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprintf("insert %s as CIDR failed", scanner.Text()))
+			}
 		}
 		if err := scanner.Err(); err != nil {
 			return errors.Wrap(err, "fail to scan IP blacklist")

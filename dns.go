@@ -75,7 +75,7 @@ func (s *Server) Serve(w dns.ResponseWriter, req *dns.Msg) {
 	if s.DomainBlacklist.Contain(qName) {
 		reply = new(dns.Msg)
 		reply.SetReply(req)
-		w.WriteMsg(reply)
+		_ = w.WriteMsg(reply)
 		return
 	}
 
@@ -117,7 +117,7 @@ func (s *Server) Serve(w dns.ResponseWriter, req *dns.Msg) {
 		reply.SetReply(req)
 	}
 
-	w.WriteMsg(reply)
+	_ = w.WriteMsg(reply)
 	logger.Debug("SERVING RTT: ", time.Since(start))
 }
 

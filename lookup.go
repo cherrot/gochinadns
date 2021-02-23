@@ -118,12 +118,12 @@ func rawLookup(cli *dns.Client, id uint16, req []byte, server Resolver, ddl time
 	defer conn.Close()
 	conn.UDPSize = udpSize
 
-	conn.SetWriteDeadline(ddl)
+	_ = conn.SetWriteDeadline(ddl)
 	if _, err := conn.Write(req); err != nil {
 		return nil, err
 	}
 
-	conn.SetReadDeadline(ddl)
+	_ = conn.SetReadDeadline(ddl)
 	reply, err := conn.ReadMsg()
 	if err != nil {
 		return nil, err
@@ -157,6 +157,7 @@ func getUDPSize(req *dns.Msg) uint16 {
 	return dns.MinMsgSize
 }
 
+//nolint:deadcode,unused
 func cleanEdns0(req *dns.Msg) {
 	for {
 		if req.IsEdns0() == nil {
@@ -166,6 +167,7 @@ func cleanEdns0(req *dns.Msg) {
 	}
 }
 
+//nolint:deadcode,unused
 func mutateQuestion(raw []byte) []byte {
 	length := len(raw)
 	if length <= 16 {
@@ -191,6 +193,7 @@ func mutateQuestion(raw []byte) []byte {
 }
 
 // add a "pointer" question. does not work now.
+//nolint:deadcode,unused
 func mutateQuestion2(raw []byte) []byte {
 	length := len(raw)
 	if length <= 16 {
