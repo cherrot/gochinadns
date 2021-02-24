@@ -1,10 +1,10 @@
 package gochinadns
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/miekg/dns"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -71,7 +71,7 @@ func (c *Client) lookupMutation(req *dns.Msg, server Resolver) (reply *dns.Msg, 
 	var buffer []byte
 	buffer, err = req.Pack()
 	if err != nil {
-		return nil, 0, errors.Wrap(err, "fail to pack request")
+		return nil, 0, fmt.Errorf("fail to pack request: %v", err.Error())
 	}
 	buffer = mutateQuestion(buffer)
 

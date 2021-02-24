@@ -2,14 +2,19 @@ package gochinadns
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/yl2chen/cidranger"
+)
+
+var (
+	ErrNotReady  = errors.New("not ready")
+	ErrEmptyPath = errors.New("empty path")
 )
 
 // ServerOption provides ChinaDNS server options. Please use WithXXX functions to generate Options.
@@ -44,8 +49,6 @@ func (o *serverOptions) normalizeChinaCIDR() {
 	}
 }
 
-var errNotReady = errors.New("not ready")
-
 func WithListenAddr(addr string) ServerOption {
 	return func(o *serverOptions) error {
 		o.Listen = addr
@@ -56,11 +59,11 @@ func WithListenAddr(addr string) ServerOption {
 func WithCHNList(path string) ServerOption {
 	return func(o *serverOptions) error {
 		if path == "" {
-			return errors.New("empty path for China route list")
+			return fmt.Errorf("%w for China route list", ErrEmptyPath)
 		}
 		file, err := os.Open(path)
 		if err != nil {
-			return errors.Wrap(err, "fail to open China route list")
+			return fmt.Errorf("fail to open China route list: %w", err)
 
 		}
 		defer file.Close()
@@ -72,15 +75,15 @@ func WithCHNList(path string) ServerOption {
 		for scanner.Scan() {
 			_, network, err := net.ParseCIDR(scanner.Text())
 			if err != nil {
-				return errors.Wrap(err, fmt.Sprintf("parse %s as CIDR failed", scanner.Text()))
+				return fmt.Errorf("parse %s as CIDR failed: %v", scanner.Text(), err.Error())
 			}
 			err = o.ChinaCIDR.Insert(cidranger.NewBasicRangerEntry(*network))
 			if err != nil {
-				return errors.Wrap(err, fmt.Sprintf("insert %s as CIDR failed", scanner.Text()))
+				return fmt.Errorf("insert %s as CIDR failed: %v", scanner.Text(), err.Error())
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			return errors.Wrap(err, "fail to scan china route list")
+			return fmt.Errorf("fail to scan china route list: %v", err.Error())
 		}
 		return nil
 	}
@@ -89,11 +92,11 @@ func WithCHNList(path string) ServerOption {
 func WithIPBlacklist(path string) ServerOption {
 	return func(o *serverOptions) error {
 		if path == "" {
-			return errors.New("empty path for IP blacklist")
+			return fmt.Errorf("%w for IP blacklist", ErrEmptyPath)
 		}
 		file, err := os.Open(path)
 		if err != nil {
-			return errors.Wrap(err, "fail to open IP blacklist")
+			return fmt.Errorf("fail to open IP blacklist: %w", err)
 		}
 		defer file.Close()
 
@@ -106,18 +109,18 @@ func WithIPBlacklist(path string) ServerOption {
 			if err != nil {
 				ip := net.ParseIP(scanner.Text())
 				if ip == nil {
-					return errors.Wrap(err, fmt.Sprintf("parse %s as CIDR failed", scanner.Text()))
+					return fmt.Errorf("parse %s as CIDR failed: %v", scanner.Text(), err.Error())
 				}
 				l := 8 * len(ip)
 				network = &net.IPNet{IP: ip, Mask: net.CIDRMask(l, l)}
 			}
 			err = o.IPBlacklist.Insert(cidranger.NewBasicRangerEntry(*network))
 			if err != nil {
-				return errors.Wrap(err, fmt.Sprintf("insert %s as CIDR failed", scanner.Text()))
+				return fmt.Errorf("insert %s as CIDR failed: %v", scanner.Text(), err.Error())
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			return errors.Wrap(err, "fail to scan IP blacklist")
+			return fmt.Errorf("fail to scan IP blacklist: %v", err.Error())
 		}
 		return nil
 	}
@@ -126,11 +129,11 @@ func WithIPBlacklist(path string) ServerOption {
 func WithDomainBlacklist(path string) ServerOption {
 	return func(o *serverOptions) error {
 		if path == "" {
-			return errors.New("empty path for domain blacklist")
+			return fmt.Errorf("%w for domain blacklist", ErrEmptyPath)
 		}
 		file, err := os.Open(path)
 		if err != nil {
-			return errors.Wrap(err, "fail to open domain blacklist")
+			return fmt.Errorf("fail to open domain blacklist: %w", err)
 		}
 		defer file.Close()
 
@@ -142,7 +145,7 @@ func WithDomainBlacklist(path string) ServerOption {
 			o.DomainBlacklist.Add(scanner.Text())
 		}
 		if err := scanner.Err(); err != nil {
-			return errors.Wrap(err, "fail to scan domain blacklist")
+			return fmt.Errorf("fail to scan domain blacklist: %v", err.Error())
 		}
 		return nil
 	}
@@ -151,11 +154,11 @@ func WithDomainBlacklist(path string) ServerOption {
 func WithDomainPolluted(path string) ServerOption {
 	return func(o *serverOptions) error {
 		if path == "" {
-			return errors.New("empty path for domain polluted")
+			return fmt.Errorf("%w for polluted domain list", ErrEmptyPath)
 		}
 		file, err := os.Open(path)
 		if err != nil {
-			return errors.Wrap(err, "fail to open domain polluted")
+			return fmt.Errorf("fail to open polluted domain list: %w", err)
 		}
 		defer file.Close()
 
@@ -167,7 +170,7 @@ func WithDomainPolluted(path string) ServerOption {
 			o.DomainPolluted.Add(scanner.Text())
 		}
 		if err := scanner.Err(); err != nil {
-			return errors.Wrap(err, "fail to scan domain polluted")
+			return fmt.Errorf("fail to scan polluted domain list: %v", err.Error())
 		}
 		return nil
 	}
@@ -178,7 +181,7 @@ func WithTrustedResolvers(tcpOnly bool, resolvers ...string) ServerOption {
 		for _, schema := range resolvers {
 			newResolver, err := ParseResolver(schema, tcpOnly)
 			if err != nil {
-				return errors.Wrap(err, "Schema error")
+				return err
 			}
 			o.TrustedServers = uniqueAppendResolver(o.TrustedServers, newResolver)
 		}
@@ -189,17 +192,17 @@ func WithTrustedResolvers(tcpOnly bool, resolvers ...string) ServerOption {
 func WithResolvers(tcpOnly bool, resolvers ...string) ServerOption {
 	return func(o *serverOptions) error {
 		if o.ChinaCIDR == nil {
-			return errNotReady
+			return fmt.Errorf("%w", ErrNotReady)
 		}
 		for _, schema := range resolvers {
 			newResolver, err := ParseResolver(schema, tcpOnly)
 			if err != nil {
-				return errors.Wrap(err, "Schema error")
+				return err
 			}
 			host, _, _ := net.SplitHostPort(newResolver.GetAddr())
 			contain, err := o.ChinaCIDR.Contains(net.ParseIP(host))
 			if err != nil {
-				return errors.Wrap(err, fmt.Sprintf("fail to check whether %s is in China", host))
+				return fmt.Errorf("fail to check whether %s is in China: %v", host, err.Error())
 			}
 			if contain {
 				o.UntrustedServers = uniqueAppendResolver(o.UntrustedServers, newResolver)

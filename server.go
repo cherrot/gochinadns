@@ -2,6 +2,7 @@ package gochinadns
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"time"
 
@@ -26,7 +27,7 @@ func NewServer(cli *Client, opts ...ServerOption) (s *Server, err error) {
 	)
 	for _, f := range opts {
 		if err = f(o); err != nil {
-			if err == errNotReady {
+			if errors.Is(err, ErrNotReady) {
 				retryOpts = append(retryOpts, f)
 				continue
 			}

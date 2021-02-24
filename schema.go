@@ -1,16 +1,17 @@
 package gochinadns
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strings"
-
-	"github.com/pkg/errors"
 )
 
 var (
 	supportedProtocols   = []string{"udp", "tcp", "doh"}
 	supportedProtocolMap = make(map[string]bool)
+
+	ErrUnknowProtocol    = errors.New("unknown protocol")
 )
 
 func init() {
@@ -122,5 +123,5 @@ func checkProtocol(proto string) error {
 	if _, ok := supportedProtocolMap[proto]; ok {
 		return nil
 	}
-	return errors.Errorf("Unknown protocol [%s]", proto)
+	return fmt.Errorf("%w [%s]", ErrUnknowProtocol, proto)
 }
