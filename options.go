@@ -32,6 +32,7 @@ type serverOptions struct {
 	ReusePort        bool          //Enable SO_REUSEPORT
 	Delay            time.Duration //Delay (in seconds) to query another DNS server when no reply received
 	TestDomains      []string      //Domain names to test connection health before starting a server
+	SkipRefine       bool
 }
 
 func newServerOptions() *serverOptions {
@@ -256,6 +257,13 @@ func WithDelay(t time.Duration) ServerOption {
 func WithTestDomains(testDomains ...string) ServerOption {
 	return func(o *serverOptions) error {
 		o.TestDomains = testDomains
+		return nil
+	}
+}
+
+func WithSkipRefineResolvers(skip bool) ServerOption {
+	return func(o *serverOptions) error {
+		o.SkipRefine = skip
 		return nil
 	}
 }

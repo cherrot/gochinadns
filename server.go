@@ -53,7 +53,9 @@ func NewServer(cli *Client, opts ...ServerOption) (s *Server, err error) {
 	s.UDPServer.Handler = dns.HandlerFunc(s.Serve)
 	s.TCPServer.Handler = dns.HandlerFunc(s.Serve)
 
-	s.refineResolvers()
+	if !s.SkipRefine {
+		s.refineResolvers()
+	}
 	return
 }
 
@@ -66,8 +68,6 @@ func (s *Server) Run() error {
 	return eg.Wait()
 }
 
-const _loop = 2
-
 func (s *Server) refineResolvers() {
 	type test struct {
 		server *Resolver
@@ -75,86 +75,53 @@ func (s *Server) refineResolvers() {
 		rttAvg time.Duration
 	}
 
-	trusted := make([]test, len(s.TrustedServers))
-	untrusted := make([]test, len(s.UntrustedServers))
-	tLen, uLen := len(s.TrustedServers), len(s.UntrustedServers)
-	req := new(dns.Msg)
-
-	for i, resolver := range s.TrustedServers {
-		trusted[i].server = resolver
-		for j := 0; j < _loop; j++ {
-			for _, name := range s.TestDomains {
-				req.SetQuestion(dns.Fqdn(name), dns.TypeA)
-				var (
-					rtt time.Duration
-					err error
-				)
-				_, rtt, err = s.Lookup(req, resolver)
-				if err != nil {
-					trusted[i].errCnt++
-					continue
+	refine := func(resolvers resolverList) (availLen int) {
+		const _loop = 3
+		availLen = len(resolvers)
+		var (
+			tests = make([]test, availLen)
+			req   = new(dns.Msg)
+		)
+		for i, rs := range resolvers {
+			tests[i].server = rs
+			for j := 0; j < _loop; j++ {
+				for _, name := range s.TestDomains {
+					req.SetQuestion(dns.Fqdn(name), dns.TypeA)
+					_, rtt, err := s.Lookup(req, rs)
+					if err != nil {
+						tests[i].errCnt++
+						continue
+					}
+					tests[i].rttAvg += rtt
 				}
-				trusted[i].rttAvg += rtt
 			}
-		}
-		if trusted[i].rttAvg > 0 {
-			trusted[i].rttAvg /= time.Duration(_loop*len(s.TestDomains) - trusted[i].errCnt)
-		}
-		if trusted[i].errCnt > _loop*len(s.TestDomains)/2 {
-			tLen--
-		}
-		logrus.Infof("%s: average RTT %s with %d errors.", resolver, trusted[i].rttAvg, trusted[i].errCnt)
-	}
-
-	sort.Slice(trusted, func(i, j int) bool {
-		if trusted[i].errCnt == trusted[j].errCnt {
-			return trusted[i].rttAvg < trusted[j].rttAvg
-		}
-		return trusted[i].errCnt < trusted[j].errCnt
-	})
-
-	for i, resolver := range s.UntrustedServers {
-		untrusted[i].server = resolver
-		for j := 0; j < _loop; j++ {
-			for _, name := range s.TestDomains {
-				req.SetQuestion(dns.Fqdn(name), dns.TypeA)
-				_, rtt, err := s.Lookup(req, resolver)
-				if err != nil {
-					untrusted[i].errCnt++
-					continue
-				}
-				untrusted[i].rttAvg += rtt
+			if tests[i].rttAvg > 0 {
+				tests[i].rttAvg /= time.Duration(_loop*len(s.TestDomains) - tests[i].errCnt)
 			}
+			if tests[i].errCnt > _loop*len(s.TestDomains)/2 {
+				availLen--
+			}
+			logrus.Infof("%s: average RTT %s with %d errors.", rs, tests[i].rttAvg, tests[i].errCnt)
 		}
-		if untrusted[i].rttAvg > 0 {
-			untrusted[i].rttAvg /= time.Duration(_loop*len(s.TestDomains) - untrusted[i].errCnt)
-		}
-		if untrusted[i].errCnt > _loop*len(s.TestDomains)/2 {
-			uLen--
-		}
-		logrus.Infof("%s: average RTT %s with %d errors.", resolver, untrusted[i].rttAvg, untrusted[i].errCnt)
+
+		// sort resolvers in place based on tests
+		sort.Slice(resolvers, func(i, j int) bool {
+			if tests[i].errCnt == tests[j].errCnt {
+				return tests[i].rttAvg < tests[j].rttAvg
+			}
+			return tests[i].errCnt < tests[j].errCnt
+		})
+
+		return availLen
 	}
 
-	sort.Slice(untrusted, func(i, j int) bool {
-		if untrusted[i].errCnt == untrusted[j].errCnt {
-			return untrusted[i].rttAvg < untrusted[j].rttAvg
-		}
-		return untrusted[i].errCnt < untrusted[j].errCnt
-	})
+	availTrusted := refine(s.TrustedServers)
+	availUntrusted := refine(s.UntrustedServers)
 
-	s.TrustedServers = make([]*Resolver, len(trusted))
-	s.UntrustedServers = make([]*Resolver, len(untrusted))
-	for i, t := range trusted {
-		s.TrustedServers[i] = t.server
-	}
-	for i, t := range untrusted {
-		s.UntrustedServers[i] = t.server
-	}
-
-	if tLen == 0 {
+	if availTrusted == 0 {
 		logrus.Error("There seems to be no available trusted resolver. Server may not behave properly.")
 	}
-	if uLen == 0 && s.Bidirectional {
+	if availUntrusted == 0 && s.Bidirectional {
 		logrus.Error("There seems to be no untrusted resolver. Server may not behave properly in bidirectional mode.")
 	}
 

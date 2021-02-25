@@ -36,6 +36,7 @@ func main() {
 		gochinadns.WithDelay(time.Duration(*flagDelay * float64(time.Second))),
 		gochinadns.WithTrustedResolvers(*flagForceTCP, flagTrustedResolvers...),
 		gochinadns.WithResolvers(*flagForceTCP, flagResolvers...),
+		gochinadns.WithSkipRefineResolvers(*flagSkipRefine),
 	}
 	if *flagTestDomains != "" {
 		opts = append(opts, gochinadns.WithTestDomains(strings.Split(*flagTestDomains, ",")...))

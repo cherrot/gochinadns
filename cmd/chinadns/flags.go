@@ -20,11 +20,12 @@ var (
 	flagReusePort       = flag.Bool("reuse-port", true, "Enable SO_REUSEPORT to gain some performance optimization. Need Linux>=3.9")
 	flagTimeout         = flag.Duration("timeout", time.Second, "DNS request timeout")
 	flagDelay           = flag.Float64("y", 0.1, "Delay (in seconds) to query another DNS server when no reply received.")
-	flagTestDomains     = flag.String("test-domains", "qq.com,163.com", "Domain names to test DNS connection health.")
+	flagTestDomains     = flag.String("test-domains", "www.qq.com", "Domain names to test DNS connection health, separated by comma.")
 	flagCHNList         = flag.String("c", "./china.list", "Path to China route list. Both IPv4 and IPv6 are supported. See http://ipverse.net")
 	flagIPBlacklist     = flag.String("l", "", "Path to IP blacklist file.")
 	flagDomainBlacklist = flag.String("domain-blacklist", "", "Path to domain blacklist file.")
 	flagDomainPolluted  = flag.String("domain-polluted", "", "Path to polluted domains list. Queries of these domains will not be sent to DNS in China.")
+	flagSkipRefine      = flag.Bool("skip-refine", false, "If true, will keep the specified resolver order and skip the refine process.")
 
 	flagResolvers        resolverAddrs = []string{"udp+tcp@119.29.29.29:53", "udp+tcp@114.114.114.114:53"}
 	flagTrustedResolvers resolverAddrs = []string{}
