@@ -39,10 +39,7 @@ func Test_schemaToResolver(t *testing.T) {
 			Addr:      "[2a09::]:53",
 			Protocols: []string{"udp"},
 		}, false},
-		{"[2a09::]", &Resolver{
-			Addr:      "[2a09::]:53",
-			Protocols: []string{"udp"},
-		}, false},
+		{"[2a09::]", nil, true},
 		{"[2a09::]:123", &Resolver{
 			Addr:      "[2a09::]:123",
 			Protocols: []string{"udp"},
@@ -55,6 +52,9 @@ func Test_schemaToResolver(t *testing.T) {
 			Addr:      "https://doh.serv/query",
 			Protocols: []string{"doh"},
 		}, false},
+		{"doh+udp@https://doh.serv/query", nil, true},
+		{"https://doh.serv/query", nil, true},
+		{"udp@https://doh.serv/query", nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {

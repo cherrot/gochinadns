@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"strings"
 )
 
@@ -11,7 +12,8 @@ var (
 	supportedProtocols   = []string{"udp", "tcp", "doh"}
 	supportedProtocolMap = make(map[string]bool)
 
-	ErrUnknowProtocol = errors.New("unknown protocol")
+	ErrUnknowProtocol  = errors.New("unknown protocol")
+	ErrInvalidResolver = errors.New("invalid resolver address")
 )
 
 func init() {
@@ -60,7 +62,7 @@ func (r resolverList) String() string {
 
 // ParseResolver takes a single resolver in schema string format and outputs a resolver struct.
 // It also accept regular ip[:port] format for backwards compatibility.
-// The schema is defined as:  [protocol[+protocol]@]ip[:port]
+// The schema is defined as:  [protocol[+protocol]@]host[:port][/endpoint]
 func ParseResolver(schema string, tcpOnly bool) (r *Resolver, err error) {
 	err = nil
 	var (
@@ -75,38 +77,32 @@ func ParseResolver(schema string, tcpOnly bool) (r *Resolver, err error) {
 		} else {
 			protos = []string{"udp"}
 		}
-	} else { // schema in proto[+proto2]@ip[:port] format
+	} else { // schema in proto[+proto2]@host[:port][/endpoint] format
 		addr = fields[1]
 		//extract protocols
 		ps := strings.Split(strings.ToLower(fields[0]), "+")
 		// check if the protocols are valid
 		for _, protocol := range ps {
-			err = checkProtocol(protocol)
-			if err != nil {
-				return
-			}
 			protos = uniqueAppendString(protos, protocol)
 		}
 	}
 
 	// Process host port
-	if len(addr) > 0 && addr[0] == '[' {
-		if _, _, err = net.SplitHostPort(addr); err != nil {
-			if strings.Contains(err.Error(), "missing port in address") {
-				addr = addr + ":53"
-				err = nil
-				if _, _, err = net.SplitHostPort(addr); err != nil {
-					return
-				}
-			} else {
-				return
-			}
-		}
-	} else if _, _, err = net.SplitHostPort(addr); err != nil {
+	if _, _, err = net.SplitHostPort(addr); err != nil {
 		if strings.Contains(err.Error(), "missing port in address") ||
 			strings.Contains(err.Error(), "too many colons in address") {
+			if strings.Contains(addr, "[") {
+				return
+			}
 			addr, err = net.JoinHostPort(addr, "53"), nil
 		} else {
+			return
+		}
+	}
+
+	// Check protocol-host pair
+	for _, protocol := range protos {
+		if err = checkProtocolHost(protocol, addr); err != nil {
 			return
 		}
 	}
@@ -118,10 +114,30 @@ func ParseResolver(schema string, tcpOnly bool) (r *Resolver, err error) {
 	return
 }
 
-// checkProtocol checks if a valid protocol is specified.
-func checkProtocol(proto string) error {
-	if _, ok := supportedProtocolMap[proto]; ok {
-		return nil
+// checkProtocolHost checks if a valid protocol-host pair is specified.
+func checkProtocolHost(proto, addr string) error {
+	if _, ok := supportedProtocolMap[proto]; !ok {
+		return fmt.Errorf("%w [%s]", ErrUnknowProtocol, proto)
 	}
-	return fmt.Errorf("%w [%s]", ErrUnknowProtocol, proto)
+	var errInvalid = fmt.Errorf("%w [%s@%s]", ErrInvalidResolver, proto, addr)
+	switch proto {
+	case "udp", "tcp":
+		// Only IP format is allowd for UDP and TCP DNS protocol
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			return err
+		}
+		if ip := net.ParseIP(host); ip == nil {
+			return errInvalid
+		}
+	case "doh":
+		u, err := url.Parse(addr)
+		if err != nil {
+			return err
+		}
+		if u.Host == "" {
+			return errInvalid
+		}
+	}
+	return nil
 }
