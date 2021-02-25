@@ -26,8 +26,8 @@ type serverOptions struct {
 	IPBlacklist      cidranger.Ranger
 	DomainBlacklist  *domainTrie
 	DomainPolluted   *domainTrie
-	TrustedServers   resolverArray //DNS servers which can be trusted
-	UntrustedServers resolverArray //DNS servers which may return polluted results
+	TrustedServers   resolverList  //DNS servers which can be trusted
+	UntrustedServers resolverList  //DNS servers which may return polluted results
 	Bidirectional    bool          //Drop results of trusted servers which containing IPs in China
 	ReusePort        bool          //Enable SO_REUSEPORT
 	Delay            time.Duration //Delay (in seconds) to query another DNS server when no reply received
@@ -223,7 +223,7 @@ func uniqueAppendString(to []string, item string) []string {
 	return append(to, item)
 }
 
-func uniqueAppendResolver(to []Resolver, item Resolver) []Resolver {
+func uniqueAppendResolver(to []*Resolver, item *Resolver) []*Resolver {
 	for _, e := range to {
 		if item.GetAddr() == e.GetAddr() {
 			return to

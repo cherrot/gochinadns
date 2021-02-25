@@ -11,7 +11,7 @@ var (
 	supportedProtocols   = []string{"udp", "tcp", "doh"}
 	supportedProtocolMap = make(map[string]bool)
 
-	ErrUnknowProtocol    = errors.New("unknown protocol")
+	ErrUnknowProtocol = errors.New("unknown protocol")
 )
 
 func init() {
@@ -30,15 +30,15 @@ type Resolver struct {
 	Protocols []string //list of protocols to use with this resolver, in order of execution
 }
 
-func (r Resolver) GetAddr() string {
+func (r *Resolver) GetAddr() string {
 	return r.Addr
 }
 
-func (r Resolver) GetProtocols() []string {
+func (r *Resolver) GetProtocols() []string {
 	return r.Protocols
 }
 
-func (r Resolver) String() string {
+func (r *Resolver) String() string {
 	sb := new(strings.Builder)
 	sb.WriteString(strings.Join(r.Protocols, "+"))
 	sb.WriteByte('@')
@@ -46,11 +46,11 @@ func (r Resolver) String() string {
 	return sb.String()
 }
 
-// resolverArray is just an array of type resolver.
+// resolverList is just an array of type resolver.
 // It's not really required other than to define String() to print it nicely in the log.
-type resolverArray []Resolver
+type resolverList []*Resolver
 
-func (r resolverArray) String() string {
+func (r resolverList) String() string {
 	sb := new(strings.Builder)
 	for _, server := range r {
 		sb.WriteString(fmt.Sprintf("%s%s ", server.GetProtocols(), server.GetAddr()))
@@ -61,7 +61,7 @@ func (r resolverArray) String() string {
 // ParseResolver takes a single resolver in schema string format and outputs a resolver struct.
 // It also accept regular ip[:port] format for backwards compatibility.
 // The schema is defined as:  [protocol[+protocol]@]ip[:port]
-func ParseResolver(schema string, tcpOnly bool) (r Resolver, err error) {
+func ParseResolver(schema string, tcpOnly bool) (r *Resolver, err error) {
 	err = nil
 	var (
 		addr   string
@@ -111,7 +111,7 @@ func ParseResolver(schema string, tcpOnly bool) (r Resolver, err error) {
 		}
 	}
 
-	r = Resolver{
+	r = &Resolver{
 		Addr:      addr,
 		Protocols: protos,
 	}

@@ -64,7 +64,7 @@ func main() {
 	fmt.Println(";; SERVER:", resolver.Addr)
 }
 
-func parseArgs(args []string) (question string, resolver gochinadns.Resolver) {
+func parseArgs(args []string) (question string, resolver *gochinadns.Resolver) {
 	for _, arg := range args {
 		if strings.Contains(arg, "@") {
 			if arg[0] == '@' {
@@ -83,7 +83,7 @@ func parseArgs(args []string) (question string, resolver gochinadns.Resolver) {
 		if err != nil {
 			logrus.Fatalln(err)
 		}
-		resolver = gochinadns.Resolver{
+		resolver = &gochinadns.Resolver{
 			Addr:      net.JoinHostPort(config.Servers[0], config.Port),
 			Protocols: []string{"udp", "tcp"},
 		}

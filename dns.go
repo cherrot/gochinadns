@@ -12,7 +12,7 @@ import (
 
 func lookupInServers(
 	ctx context.Context, cancel context.CancelFunc, result chan<- *dns.Msg, req *dns.Msg,
-	servers []Resolver, waitInterval time.Duration, lookup LookupFunc,
+	servers []*Resolver, waitInterval time.Duration, lookup LookupFunc,
 ) {
 	defer cancel()
 	if len(servers) == 0 {
@@ -27,7 +27,7 @@ func lookupInServers(
 	queryNext <- struct{}{}
 	var wg sync.WaitGroup
 
-	doLookup := func(server Resolver) {
+	doLookup := func(server *Resolver) {
 		defer wg.Done()
 		logger := logger.WithField("server", server.GetAddr())
 

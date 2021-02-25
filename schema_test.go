@@ -9,45 +9,45 @@ func Test_schemaToResolver(t *testing.T) {
 
 	tests := []struct {
 		input   string
-		wantR   Resolver
+		wantR   *Resolver
 		wantErr bool
 	}{
-		{"8.8.8.8:53", Resolver{
+		{"8.8.8.8:53", &Resolver{
 			Addr:      "8.8.8.8:53",
 			Protocols: []string{"udp", "tcp"},
 		}, false},
-		{"udp@8.8.8.8:54", Resolver{
+		{"udp@8.8.8.8:54", &Resolver{
 			Addr:      "8.8.8.8:54",
 			Protocols: []string{"udp"},
 		}, false},
-		{"UDP+tcp@8.8.8.8:53", Resolver{
+		{"UDP+tcp@8.8.8.8:53", &Resolver{
 			Addr:      "8.8.8.8:53",
 			Protocols: []string{"udp", "tcp"},
 		}, false},
-		{"UDP+udp+tcp@8.8.8.8:53", Resolver{
+		{"UDP+udp+tcp@8.8.8.8:53", &Resolver{
 			Addr:      "8.8.8.8:53",
 			Protocols: []string{"udp", "tcp"},
 		}, false},
-		{"tcp+udp@8.8.8.8:53", Resolver{
+		{"tcp+udp@8.8.8.8:53", &Resolver{
 			Addr:      "8.8.8.8:53",
 			Protocols: []string{"tcp", "udp"},
 		}, false},
-		{"@8.8.8.8:53", Resolver{}, true},
-		{"asdf@8.8.8.8:53", Resolver{}, true},
-		{"wut+tcp@8.8.8.8:53", Resolver{}, true},
-		{"2a09::", Resolver{
+		{"@8.8.8.8:53", nil, true},
+		{"asdf@8.8.8.8:53", nil, true},
+		{"wut+tcp@8.8.8.8:53", nil, true},
+		{"2a09::", &Resolver{
 			Addr:      "[2a09::]:53",
 			Protocols: []string{"udp", "tcp"},
 		}, false},
-		{"[2a09::]", Resolver{
+		{"[2a09::]", &Resolver{
 			Addr:      "[2a09::]:53",
 			Protocols: []string{"udp", "tcp"},
 		}, false},
-		{"[2a09::]:123", Resolver{
+		{"[2a09::]:123", &Resolver{
 			Addr:      "[2a09::]:123",
 			Protocols: []string{"udp", "tcp"},
 		}, false},
-		{"udp@2a09::", Resolver{
+		{"udp@2a09::", &Resolver{
 			Addr:      "[2a09::]:53",
 			Protocols: []string{"udp"},
 		}, false},

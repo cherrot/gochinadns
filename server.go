@@ -70,7 +70,7 @@ const _loop = 2
 
 func (s *Server) refineResolvers() {
 	type test struct {
-		server Resolver
+		server *Resolver
 		errCnt int
 		rttAvg time.Duration
 	}
@@ -142,8 +142,8 @@ func (s *Server) refineResolvers() {
 		return untrusted[i].errCnt < untrusted[j].errCnt
 	})
 
-	s.TrustedServers = make([]Resolver, len(trusted))
-	s.UntrustedServers = make([]Resolver, len(untrusted))
+	s.TrustedServers = make([]*Resolver, len(trusted))
+	s.UntrustedServers = make([]*Resolver, len(untrusted))
 	for i, t := range trusted {
 		s.TrustedServers[i] = t.server
 	}

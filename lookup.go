@@ -9,9 +9,9 @@ import (
 )
 
 // LookupFunc looks up DNS request to the given server and returns DNS reply, its RTT time and an error.
-type LookupFunc func(request *dns.Msg, server Resolver) (reply *dns.Msg, rtt time.Duration, err error)
+type LookupFunc func(request *dns.Msg, server *Resolver) (reply *dns.Msg, rtt time.Duration, err error)
 
-func (c *Client) Lookup(req *dns.Msg, server Resolver) (reply *dns.Msg, rtt time.Duration, err error) {
+func (c *Client) Lookup(req *dns.Msg, server *Resolver) (reply *dns.Msg, rtt time.Duration, err error) {
 	if c.Mutation {
 		return c.lookupMutation(req, server)
 	}
@@ -22,7 +22,7 @@ func (c *Client) Lookup(req *dns.Msg, server Resolver) (reply *dns.Msg, rtt time
 // DNS Proxy Implementation Guidelines: https://tools.ietf.org/html/rfc5625
 // DNS query processing: https://tools.ietf.org/html/rfc1034#section-3.7
 // Happy Eyeballs: https://tools.ietf.org/html/rfc6555#section-5.4 and #section-6
-func (c *Client) lookupNormal(req *dns.Msg, server Resolver) (reply *dns.Msg, rtt time.Duration, err error) {
+func (c *Client) lookupNormal(req *dns.Msg, server *Resolver) (reply *dns.Msg, rtt time.Duration, err error) {
 	logger := logrus.WithFields(logrus.Fields{
 		"question": questionString(&req.Question[0]),
 		"server":   server,
@@ -62,7 +62,7 @@ func (c *Client) lookupNormal(req *dns.Msg, server Resolver) (reply *dns.Msg, rt
 // lookupMutation does the same as lookupNormal, with pointer mutation for DNS query.
 // DNS Compression: https://tools.ietf.org/html/rfc1035#section-4.1.4
 // DNS compression pointer mutation: https://gist.github.com/klzgrad/f124065c0616022b65e5#file-sendmsg-c-L30-L63
-func (c *Client) lookupMutation(req *dns.Msg, server Resolver) (reply *dns.Msg, rtt time.Duration, err error) {
+func (c *Client) lookupMutation(req *dns.Msg, server *Resolver) (reply *dns.Msg, rtt time.Duration, err error) {
 	logger := logrus.WithFields(logrus.Fields{
 		"question": questionString(&req.Question[0]),
 		"server":   server,
@@ -110,7 +110,7 @@ func (c *Client) lookupMutation(req *dns.Msg, server Resolver) (reply *dns.Msg, 
 	return
 }
 
-func rawLookup(cli *dns.Client, id uint16, req []byte, server Resolver, ddl time.Time, udpSize uint16) (*dns.Msg, error) {
+func rawLookup(cli *dns.Client, id uint16, req []byte, server *Resolver, ddl time.Time, udpSize uint16) (*dns.Msg, error) {
 	conn, err := cli.Dial(server.GetAddr())
 	if err != nil {
 		return nil, err
