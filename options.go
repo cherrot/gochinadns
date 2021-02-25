@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"time"
 
@@ -200,10 +201,23 @@ func WithResolvers(tcpOnly bool, resolvers ...string) ServerOption {
 			if err != nil {
 				return err
 			}
-			host, _, _ := net.SplitHostPort(newResolver.GetAddr())
-			contain, err := o.ChinaCIDR.Contains(net.ParseIP(host))
+
+			var ip net.IP
+			if len(newResolver.GetProtocols()) == 1 && newResolver.GetProtocols()[0] == "doh" {
+				if ip, err = resolveAddr(newResolver.GetAddr()); err != nil {
+					return err
+				}
+			} else {
+				host, _, err := net.SplitHostPort(newResolver.GetAddr())
+				if err != nil {
+					return err
+				}
+				ip = net.ParseIP(host)
+			}
+
+			contain, err := o.ChinaCIDR.Contains(ip)
 			if err != nil {
-				return fmt.Errorf("fail to check whether %s is in China: %v", host, err.Error())
+				return fmt.Errorf("fail to check if %s is in China: %v", newResolver.GetAddr(), err.Error())
 			}
 			if contain {
 				o.UntrustedServers = uniqueAppendResolver(o.UntrustedServers, newResolver)
@@ -266,4 +280,25 @@ func WithSkipRefineResolvers(skip bool) ServerOption {
 		o.SkipRefine = skip
 		return nil
 	}
+}
+
+func resolveAddr(addr string) (net.IP, error) {
+	u, err := url.Parse(addr)
+	if err != nil {
+		return nil, err
+	}
+	host := u.Hostname()
+
+	if ip := net.ParseIP(u.Host); ip != nil {
+		return ip, nil
+	}
+
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return nil, err
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("cannot resolve %s", host)
+	}
+	return ips[0], nil
 }
