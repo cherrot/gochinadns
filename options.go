@@ -8,12 +8,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/yl2chen/cidranger"
 )
 
 var (
-	ErrNotReady  = errors.New("not ready")
 	ErrEmptyPath = errors.New("empty path")
 )
 
@@ -21,17 +19,18 @@ var (
 type ServerOption func(*serverOptions) error
 
 type serverOptions struct {
-	Listen           string           //Listening address, such as `[::]:53`, `0.0.0.0:53`
-	ChinaCIDR        cidranger.Ranger //CIDR ranger to check whether an IP belongs to China
+	Listen           string           // Listening address, such as `[::]:53`, `0.0.0.0:53`
+	ChinaCIDR        cidranger.Ranger // CIDR ranger to check whether an IP belongs to China
 	IPBlacklist      cidranger.Ranger
 	DomainBlacklist  *domainTrie
 	DomainPolluted   *domainTrie
-	TrustedServers   resolverList  //DNS servers which can be trusted
-	UntrustedServers resolverList  //DNS servers which may return polluted results
-	Bidirectional    bool          //Drop results of trusted servers which containing IPs in China
-	ReusePort        bool          //Enable SO_REUSEPORT
-	Delay            time.Duration //Delay (in seconds) to query another DNS server when no reply received
-	TestDomains      []string      //Domain names to test connection health before starting a server
+	Servers          resolverList  // DNS servers, will be partitioned into TrustedServers and UntrustedServers in bootstrap.
+	TrustedServers   resolverList  // DNS servers which can be trusted
+	UntrustedServers resolverList  // DNS servers which may return polluted results
+	Bidirectional    bool          // Drop results of trusted servers which containing IPs in China
+	ReusePort        bool          // Enable SO_REUSEPORT
+	Delay            time.Duration // Delay (in seconds) to query another DNS server when no reply received
+	TestDomains      []string      // Domain names to test connection health before starting a server
 	SkipRefine       bool
 }
 
@@ -39,14 +38,8 @@ func newServerOptions() *serverOptions {
 	return &serverOptions{
 		Listen:      "[::]:53",
 		TestDomains: []string{"qq.com"},
+		ChinaCIDR:   cidranger.NewPCTrieRanger(),
 		IPBlacklist: cidranger.NewPCTrieRanger(),
-	}
-}
-
-func (o *serverOptions) normalizeChinaCIDR() {
-	if o.ChinaCIDR == nil {
-		o.ChinaCIDR = cidranger.NewPCTrieRanger()
-		logrus.Warn("China route list is not specified. Disable CHNRoute.")
 	}
 }
 
@@ -192,24 +185,12 @@ func WithTrustedResolvers(tcpOnly bool, resolvers ...string) ServerOption {
 
 func WithResolvers(tcpOnly bool, resolvers ...string) ServerOption {
 	return func(o *serverOptions) error {
-		if o.ChinaCIDR == nil {
-			return fmt.Errorf("%w", ErrNotReady)
-		}
 		for _, schema := range resolvers {
 			newResolver, err := ParseResolver(schema, tcpOnly)
 			if err != nil {
 				return err
 			}
-			host, _, _ := net.SplitHostPort(newResolver.GetAddr())
-			contain, err := o.ChinaCIDR.Contains(net.ParseIP(host))
-			if err != nil {
-				return fmt.Errorf("fail to check whether %s is in China: %v", host, err.Error())
-			}
-			if contain {
-				o.UntrustedServers = uniqueAppendResolver(o.UntrustedServers, newResolver)
-			} else {
-				o.TrustedServers = uniqueAppendResolver(o.TrustedServers, newResolver)
-			}
+			o.Servers = uniqueAppendResolver(o.Servers, newResolver)
 		}
 		return nil
 	}
