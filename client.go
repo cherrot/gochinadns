@@ -10,9 +10,9 @@ import (
 
 type Client struct {
 	*clientOptions
-	UDPCli    *dns.Client
-	TCPCli    *dns.Client
-	DoHCli    *doh.Client
+	UDPCli *dns.Client
+	TCPCli *dns.Client
+	DoHCli *doh.Client
 }
 
 func NewClient(opts ...ClientOption) *Client {
@@ -24,7 +24,10 @@ func NewClient(opts ...ClientOption) *Client {
 		clientOptions: o,
 		UDPCli:        &dns.Client{Timeout: o.Timeout, Net: "udp"},
 		TCPCli:        &dns.Client{Timeout: o.Timeout, Net: "tcp"},
-		DoHCli:        doh.NewClient(doh.WithTimeout(o.Timeout)),
+		DoHCli: doh.NewClient(
+			doh.WithTimeout(o.Timeout),
+			doh.WithSkipQueryMySelf(o.DoHSkipQuerySelf),
+		),
 	}
 }
 
@@ -33,6 +36,7 @@ type clientOptions struct {
 	UDPMaxSize       int           // Max message size for UDP queries
 	TCPOnly          bool          // Use TCP only
 	Mutation         bool          // Enable DNS pointer mutation for trusted servers
+	DoHSkipQuerySelf bool
 }
 
 type ClientOption func(*clientOptions)
@@ -58,5 +62,11 @@ func WithTCPOnly(b bool) ClientOption {
 func WithMutation(b bool) ClientOption {
 	return func(o *clientOptions) {
 		o.Mutation = b
+	}
+}
+
+func WithDoHSkipQuerySelf(skip bool) ClientOption {
+	return func(o *clientOptions) {
+		o.DoHSkipQuerySelf = skip
 	}
 }
