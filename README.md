@@ -2,23 +2,49 @@
 
 GoChinaDNS is a DNS proxy, which smartly dispatches DNS questions to get nearest answers. This can be a drop-in replacement for [ChinaDNS](https://github.com/shadowsocks/ChinaDNS), with a better code implementation and several bugfixes.
 
+## Why I Wrote This
+
+principles
+
+1. K.I.S.S and do one thing well.
+2. zero config. use it out of box
+3. Easy to tweak and debug
+
+other choices to save your time.
+
+- [IrineSistiana/mosdns](https://github.com/IrineSistiana/mosdns)
+- [shawn1m/overture](https://github.com/shawn1m/overture)
+- [pymumu/smartdns](https://github.com/pymumu/smartdns)
+- [faicker/greendns](https://github.com/faicker/greendns)
+- [GangZhuo/CleanDNS](https://github.com/GangZhuo/CleanDNS)
+
+## How It Works
+
+discussion
+Chinese and English
+
+## Contribute
+english
+
 ## Install
 
 Binaries for linux, windows and darwin (macOS) are available under Releases. 
 
-You will also need a list of IP ranges in China, such as [@pexcn/chnroute.txt](https://raw.githubusercontent.com/pexcn/daily/gh-pages/chnroute/chnroute.txt).
+You may also need a list of IP ranges in China, such as [@pexcn/chnroute.txt](https://raw.githubusercontent.com/pexcn/daily/gh-pages/chnroute/chnroute.txt).
+
 ## Build
+
 This project is written in Go. If you want to build it yourself, you need to [install Go](https://golang.org/doc/install) first.
 
 ```shell
 git clone https://github.com/cherrot/gochinadns
 cd gochinadns
-go get -u ./...
-cd cmd/chinadns
-go build
+go mod download
+go build github.com/cherrot/gochinadns/cmd/chinadns
+go build github.com/cherrot/gochinadns/cmd/lookup
 ```
 
-## Usage 
+## Use Cases
 Run:
 
 ```shell
@@ -31,7 +57,7 @@ Test:
 dig @::1 -p5553 google.com
 ```
 
-## Advanced usage 
+## Advanced Usage 
 ### Customize upstream servers
 ```shell
 ./chinadns -p 5553 -c ./chnroute.txt -s 114.114.114.114,127.0.0.1:5353
@@ -55,10 +81,11 @@ Similarly, if you run a transparent TCP proxy that proxies traffic to 8.8.8.8 yo
 ./chinadns -p 5553 -c ./china.list -s udp+tcp@114.114.114.114,udp@127.0.0.1:5353,tcp@8.8.8.8
 ```
 ## Params
-```
+
+```shell
 $ ./chinadns -h
 
-Usage of chinadns:
+Usage of ./chinadns:
   -V    Print version and exit.
   -b string
         Bind address. (default "::")
@@ -83,11 +110,13 @@ Usage of chinadns:
         Servers can be in format ip:port or protocol[+protocol]@ip:port where protocol is udp or tcp.
         Protocols are dialed in order left to right. Rightmost protocol will only be dialed if the leftmost fails.
         Protocols will override force-tcp flag. If empty, protocol defaults to udp+tcp (tcp if force-tcp is set) and port defaults to 53.
-        Examples: udp@8.8.8.8,udp+tcp@127.0.0.1:5353,1.1.1.1 (default udp+tcp@119.29.29.29,udp+tcp@114.114.114.114)
+        Examples: 8.8.8.8,udp@127.0.0.1:5353,udp+tcp@1.1.1.1, doh@https://cloudflare-dns.com/dns-query (default udp+tcp@119.29.29.29,udp+tcp@114.114.114.114)
+  -skip-refine
+        If true, will keep the specified resolver order and skip the refine process.
   -test-domains string
-        Domain names to test DNS connection health. (default "qq.com,163.com")
+        Domain names to test DNS connection health, separated by comma. (default "www.qq.com")
   -timeout duration
-        DNS request timeout (default 1s)
+        DNS request timeout (default 2s)
   -trusted-servers value
         Comma separated list of servers which (located in China but) can be trusted.
         Uses the same format as -s.
@@ -97,4 +126,19 @@ Usage of chinadns:
   -y float
         Delay (in seconds) to query another DNS server when no reply received. (default 0.1)
 
+```
+
+```shell
+$ ./lookup -h
+./lookup -h
+Usage: ./lookup [options] [proto[+proto]]@server www.domain.com
+Where proto being one of:  [udp tcp doh]
+
+Options:
+  -m    Enable compression pointer mutation in DNS queries.
+  -timeout duration
+        DNS request timeout (default 2s)
+  -udp-max-bytes int
+        Default DNS max message size on UDP. (default 4096)
+  -v    Enable verbose logging.
 ```
