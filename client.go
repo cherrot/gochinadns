@@ -4,16 +4,19 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+
+	"github.com/cherrot/gochinadns/doh"
 )
 
 type Client struct {
 	*clientOptions
 	UDPCli *dns.Client
 	TCPCli *dns.Client
+	DoHCli *doh.Client
 }
 
 func NewClient(opts ...ClientOption) *Client {
-	o := newClientOptions()
+	o := new(clientOptions)
 	for _, f := range opts {
 		f(o)
 	}
@@ -21,20 +24,19 @@ func NewClient(opts ...ClientOption) *Client {
 		clientOptions: o,
 		UDPCli:        &dns.Client{Timeout: o.Timeout, Net: "udp"},
 		TCPCli:        &dns.Client{Timeout: o.Timeout, Net: "tcp"},
+		DoHCli: doh.NewClient(
+			doh.WithTimeout(o.Timeout),
+			doh.WithSkipQueryMySelf(o.DoHSkipQuerySelf),
+		),
 	}
 }
 
 type clientOptions struct {
-	Timeout    time.Duration // Timeout for one DNS query
-	UDPMaxSize int           // Max message size for UDP queries
-	TCPOnly    bool          // Use TCP only
-	Mutation   bool          // Enable DNS pointer mutation for trusted servers
-}
-
-func newClientOptions() *clientOptions {
-	return &clientOptions{
-		Timeout: time.Second,
-	}
+	Timeout          time.Duration // Timeout for one DNS query
+	UDPMaxSize       int           // Max message size for UDP queries
+	TCPOnly          bool          // Use TCP only
+	Mutation         bool          // Enable DNS pointer mutation for trusted servers
+	DoHSkipQuerySelf bool
 }
 
 type ClientOption func(*clientOptions)
@@ -60,5 +62,11 @@ func WithTCPOnly(b bool) ClientOption {
 func WithMutation(b bool) ClientOption {
 	return func(o *clientOptions) {
 		o.Mutation = b
+	}
+}
+
+func WithDoHSkipQuerySelf(skip bool) ClientOption {
+	return func(o *clientOptions) {
+		o.DoHSkipQuerySelf = skip
 	}
 }

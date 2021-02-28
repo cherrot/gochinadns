@@ -2,10 +2,13 @@ package gochinadns
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"net"
+	"net/url"
 	"sort"
 	"time"
 
+	"github.com/cherrot/gochinadns/hosts"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -21,29 +24,13 @@ type Server struct {
 
 // NewServer creates a new server instance
 func NewServer(cli *Client, opts ...ServerOption) (s *Server, err error) {
-	var (
-		retryOpts []ServerOption
-		o         = newServerOptions()
-	)
+	var	o         = newServerOptions()
 	for _, f := range opts {
 		if err = f(o); err != nil {
-			if errors.Is(err, ErrNotReady) {
-				retryOpts = append(retryOpts, f)
-				continue
-			}
 			return
 		}
 	}
 
-	o.normalizeChinaCIDR()
-
-	for _, f := range retryOpts {
-		if err = f(o); err != nil {
-			return
-		}
-	}
-
-	err = nil
 	s = &Server{
 		serverOptions: o,
 		Client:        cli,
@@ -53,6 +40,10 @@ func NewServer(cli *Client, opts ...ServerOption) (s *Server, err error) {
 	s.UDPServer.Handler = dns.HandlerFunc(s.Serve)
 	s.TCPServer.Handler = dns.HandlerFunc(s.Serve)
 
+	if err = s.partitionResolvers(); err != nil {
+		s = nil
+		return
+	}
 	if !s.SkipRefine {
 		s.refineResolvers()
 	}
@@ -68,12 +59,55 @@ func (s *Server) Run() error {
 	return eg.Wait()
 }
 
+// partitionResolvers partitions resolvers into untrusted and trusted separately
+// If a DoH server is not in an IP format, and it's hostname is not in system's hosts file (e.g. /etc/hosts),
+// I will treat it a trusted server by default.
+func (s *Server) partitionResolvers() error {
+	for _, resolver := range s.Servers {
+		var (
+			ip net.IP
+			err error
+		)
+		if len(resolver.GetProtocols()) == 1 && resolver.GetProtocols()[0] == "doh" {
+			if ip, err = s.resolveDoHAddr(resolver.GetAddr()); err != nil {
+				return err
+			}
+			if ip == nil {
+				logrus.Warnf("I can't find IP for [%s] in system's hosts file, trust it by default.", resolver.GetAddr())
+				s.TrustedServers = uniqueAppendResolver(s.TrustedServers, resolver)
+				continue
+			}
+		} else {
+			host, _, err := net.SplitHostPort(resolver.GetAddr())
+			if err != nil {
+				return err
+			}
+			ip = net.ParseIP(host)
+		}
+
+		contain, err := s.ChinaCIDR.Contains(ip)
+		if err != nil {
+			return fmt.Errorf("fail to check if %s is in China: %v", resolver.GetAddr(), err.Error())
+		}
+		if contain {
+			s.UntrustedServers = uniqueAppendResolver(s.UntrustedServers, resolver)
+		} else {
+			s.TrustedServers = uniqueAppendResolver(s.TrustedServers, resolver)
+		}
+	}
+	return nil
+}
+
 func (s *Server) refineResolvers() {
 	type test struct {
 		server *Resolver
 		errCnt int
 		rttAvg time.Duration
 	}
+
+	logrus.Infoln("Start server temporarily to refine resolvers' order.")
+	go s.UDPServer.ListenAndServe() //nolint:errcheck
+	go s.TCPServer.ListenAndServe() //nolint:errcheck
 
 	refine := func(resolvers resolverList) (availLen int) {
 		const _loop = 3
@@ -114,17 +148,47 @@ func (s *Server) refineResolvers() {
 
 		return availLen
 	}
+	
 
-	availTrusted := refine(s.TrustedServers)
-	availUntrusted := refine(s.UntrustedServers)
+	t := make(resolverList, len(s.TrustedServers))
+	un := make(resolverList, len(s.UntrustedServers))
+	copy(t, s.TrustedServers)
+	copy(un, s.UntrustedServers)
+	availTrusted, availUntrusted := refine(t), refine(un)
+
+	_ = s.UDPServer.Shutdown()
+	_ = s.TCPServer.Shutdown()
+	s.TrustedServers, s.UntrustedServers = t, un
 
 	if availTrusted == 0 {
-		logrus.Error("There seems to be no available trusted resolver. Server may not behave properly.")
+		logrus.Error("All trusted resolvers test failed. Server may not behave properly.")
 	}
 	if availUntrusted == 0 && s.Bidirectional {
-		logrus.Error("There seems to be no untrusted resolver. Server may not behave properly in bidirectional mode.")
+		logrus.Error("All untrusted resolvers test failed. Server may not behave properly in bidirectional mode.")
 	}
 
 	logrus.Info("Refined trusted resolvers: ", s.TrustedServers)
 	logrus.Info("Refined untrusted resolvers: ", s.UntrustedServers)
+}
+
+func (s *Server) resolveDoHAddr(addr string) (net.IP, error) {
+	u, err := url.Parse(addr)
+	if err != nil {
+		return nil, err
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("cannot parse url [%s]", addr)
+	}
+
+	host := u.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		return ip, nil
+	}
+
+	if ip := hosts.Lookup(host); ip != nil {
+		return ip, nil
+	}
+
+	// That's it. Will not lookup in upstream servers
+	return nil, nil
 }

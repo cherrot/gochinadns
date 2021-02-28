@@ -25,8 +25,7 @@ var (
 
 func usage() {
 	fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options] [proto[+proto]]@server www.domain.com\n", os.Args[0])
-	// TODO: supported schemas
-	fmt.Fprintln(flag.CommandLine.Output(), "Where proto being one of: udp, tcp.")
+	fmt.Fprintln(flag.CommandLine.Output(), "Where proto being one of: ", gochinadns.SupportedProtocols())
 	fmt.Fprintln(flag.CommandLine.Output(), "\nOptions:")
 	flag.PrintDefaults()
 }
@@ -61,7 +60,7 @@ func main() {
 
 	fmt.Println(r)
 	fmt.Println(";; Query time:", rtt)
-	fmt.Println(";; SERVER:", resolver.Addr)
+	fmt.Println(";; SERVER:", resolver)
 }
 
 func parseArgs(args []string) (question string, resolver *gochinadns.Resolver) {
@@ -78,7 +77,7 @@ func parseArgs(args []string) (question string, resolver *gochinadns.Resolver) {
 			question = arg
 		}
 	}
-	if resolver.Addr == "" {
+	if resolver.GetAddr() == "" {
 		config, err := dns.ClientConfigFromFile("/etc/resolv.conf")
 		if err != nil {
 			logrus.Fatalln(err)

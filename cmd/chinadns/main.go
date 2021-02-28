@@ -59,6 +59,7 @@ func main() {
 		gochinadns.WithTCPOnly(*flagForceTCP),
 		gochinadns.WithMutation(*flagMutation),
 		gochinadns.WithTimeout(*flagTimeout),
+		gochinadns.WithDoHSkipQuerySelf(true),
 	}
 
 	client := gochinadns.NewClient(copts...)
